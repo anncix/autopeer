@@ -1,0 +1,80 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, stat_card, deploy_badge, badge %}
+{% block title %}Admin · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Dashboard", "Control plane: " ~ settings.base_url, i18n_key="admin.dashboard", i18n_subtitle_key="admin.control_plane", i18n_subtitle_params={"url": settings.base_url}) }}
+
+<div class="stat-grid">
+  {{ stat_card("Nodes online", stats.nodes_online, stats.nodes_enabled ~ " enabled / " ~ stats.nodes_total ~ " total", "accent", "/admin/nodes", i18n_key="admin.nodes_online", i18n_sub_key="admin.nodes_online_sub", i18n_sub_params={"enabled": stats.nodes_enabled, "total": stats.nodes_total}) }}
+  <div class="stat-card stat-ok stat-card-with-action">
+    <a class="stat-card-main" href="/admin/peers">
+      <div class="stat-value">{{ stats.peers_total }}</div>
+      <div class="stat-label" data-i18n="admin.peerings">Peerings</div>
+      <div class="stat-sub" data-i18n="admin.peerings_sub" data-i18n-param-deployed="{{ stats.peers_deployed }}">{{ stats.peers_deployed }} deployed</div>
+    </a>
+    <a class="btn btn-outlined btn-sm stat-card-action" href="/admin/peers/new" data-i18n="admin.add_peer">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Add peer</span>
+    </a>
+  </div>
+  {{ stat_card("Failed deploys", stats.peers_failed, "need attention" if stats.peers_failed else "all healthy", "bad" if stats.peers_failed else "ok", "/admin/peers", i18n_key="admin.failed_deploys", i18n_sub_key=("admin.failed_deploys_sub_attention" if stats.peers_failed else "admin.failed_deploys_sub_healthy")) }}
+  {{ stat_card("Members", stats.users_total, stats.users_admin ~ " admin", "neutral", "/admin/users", i18n_key="admin.members", i18n_sub_key="admin.members_sub", i18n_sub_params={"admin": stats.users_admin}) }}
+  {{ stat_card("Queries", stats.lg_total, "audit log", "neutral", "/admin/lg-log", i18n_key="admin.queries", i18n_sub_key="admin.queries_sub") }}
+</div>
+
+{% if failed_peers %}
+<div class="card">
+  <div class="section-title"><h2 data-i18n="admin.needs_attention">Needs attention — failed deploys</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th data-i18n="portal.peer">Peer</th><th data-i18n="common.asn">ASN</th><th data-i18n="admin.node">Node</th><th data-i18n="admin.output">Output</th><th></th></tr></thead>
+      <tbody>
+        {% for peer in failed_peers %}
+        <tr>
+          <td class="mono">{{ peer.id[:8] }}…</td>
+          <td class="mono">AS{{ peer.asn | replace("AS", "", 1) }}</td>
+          <td>{{ peer.node.name }}</td>
+          <td><span class="truncate" title="{{ peer.deploy_output }}">{{ peer.deploy_output or "—" }}</span></td>
+          <td class="nowrap">
+            <a class="btn btn-outlined btn-sm" href="/admin/peers/{{ peer.id }}/edit" data-i18n="admin.manage">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>Manage</span>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="split-2">
+  <div class="card">
+    <div class="section-title"><h2 data-i18n="admin.recent_peerings">Recent peerings</h2><a href="/admin/peers" class="btn btn-ghost btn-sm" data-i18n="admin.all">All</a></div>
+    {% if recent_peers %}
+    <ul class="activity-list">
+      {% for peer in recent_peers %}
+      <li>
+        <span class="mono">AS{{ peer.asn | replace("AS", "", 1) }}</span> @ {{ peer.node.name }}
+        <span>{{ deploy_badge(peer.deploy_status) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty-state" data-i18n="admin.no_peers">No peers yet.</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="section-title"><h2 data-i18n="admin.recent_queries">Recent queries</h2><a href="/admin/lg-log" class="btn btn-ghost btn-sm" data-i18n="admin.all">All</a></div>
+    {% if recent_queries %}
+    <ul class="activity-list">
+      {% for q in recent_queries %}
+      <li>
+        <span class="mono truncate" title="{{ q.query_type }} {{ q.target }}">{{ q.query_type }} {{ q.target or "" }}</span>
+        <span>{{ badge("ok", "ok") if q.ok else badge("fail", "bad") }} {{ q.node.name if q.node else "?" }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty-state" data-i18n="admin.no_queries">No queries yet.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

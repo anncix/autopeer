@@ -1,0 +1,61 @@
+{#
+  Reusable presentation macros shared by every page.
+  - badge / status_badge / deploy_badge / bool_pill: coloured pills for states
+  - stat_card: dashboard metric card
+  - page_header: title + optional subtitle
+  - code_block: <pre> with a copy button (multi-line configs)
+  - copy_button: standalone copy button (short values like tokens/keys)
+  - pagination: prev / page-of / next pager
+#}
+
+{% macro badge(text, tone="neutral", i18n_key=None) %}<span class="badge badge-{{ tone }}"{% if i18n_key %} data-i18n="{{ i18n_key }}"{% endif %}>{{ text }}</span>{% endmacro %}
+
+{% macro status_badge(status) %}
+  {%- set tones = {"approved": "ok", "disabled": "bad", "pending": "warn"} -%}
+  {{ badge(status, tones.get(status, "neutral"), "status." ~ status) }}
+{%- endmacro %}
+
+{% macro deploy_badge(status) %}
+  {%- set tones = {"deployed": "ok", "failed": "bad", "deploying": "warn"} -%}
+  {{ badge(status.replace("_", " "), tones.get(status, "neutral"), "status." ~ status) }}
+{%- endmacro %}
+
+{% macro bool_pill(value, on="yes", off="no", i18n_prefix=None) %}
+  {{ badge(on, "ok", (i18n_prefix ~ on) if i18n_prefix else none) if value else badge(off, "neutral", (i18n_prefix ~ off) if i18n_prefix else none) }}
+{%- endmacro %}
+
+{% macro stat_card(label, value, sub=None, tone="neutral", href=None, i18n_key=None, i18n_sub_key=None, i18n_label_params=None, i18n_sub_params=None) %}
+  {% if href %}<a class="stat-card stat-{{ tone }}" href="{{ href }}">{% else %}<div class="stat-card stat-{{ tone }}">{% endif %}
+    <div class="stat-value">{{ value }}</div>
+    <div class="stat-label"{% if i18n_key %} data-i18n="{{ i18n_key }}"{% if i18n_label_params %}{% for k, v in i18n_label_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ label }}</div>
+    {% if sub %}<div class="stat-sub"{% if i18n_sub_key %} data-i18n="{{ i18n_sub_key }}"{% if i18n_sub_params %}{% for k, v in i18n_sub_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ sub }}</div>{% endif %}
+  {% if href %}</a>{% else %}</div>{% endif %}
+{%- endmacro %}
+
+{% macro page_header(title, subtitle=None, i18n_key=None, i18n_subtitle_key=None, i18n_title_params=None, i18n_subtitle_params=None) %}
+<div class="page-header">
+  <h1{% if i18n_key %} data-i18n="{{ i18n_key }}"{% if i18n_title_params %}{% for k, v in i18n_title_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ title }}</h1>
+  {% if subtitle %}<p class="muted"{% if i18n_subtitle_key %} data-i18n="{{ i18n_subtitle_key }}"{% if i18n_subtitle_params %}{% for k, v in i18n_subtitle_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ subtitle }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro code_block(content, ok=None) %}
+<div class="codewrap">
+  <button type="button" class="copy-btn" data-copy-target=".codewrap pre" data-i18n="common.copy">Copy</button>
+  <pre class="terminal{% if ok is true %} ok{% elif ok is false %} bad{% endif %}">{{ content }}</pre>
+</div>
+{%- endmacro %}
+
+{% macro copy_button(text, label="Copy") %}<button type="button" class="copy-btn copy-inline" data-copy="{{ text }}" data-i18n="common.copy">{{ label }}</button>{% endmacro %}
+
+{% macro pagination(pg, base_path) %}
+{% if pg.pages > 1 %}
+<nav class="pager">
+  {% if pg.has_prev %}<a class="btn btn-ghost btn-sm" href="{{ base_path }}?page={{ pg.page - 1 }}" data-i18n="pagination.prev">← Prev</a>
+  {% else %}<span class="btn btn-ghost btn-sm disabled" data-i18n="pagination.prev">← Prev</span>{% endif %}
+  <span class="pager-info" data-i18n="pagination.page_info" data-i18n-param-current="{{ pg.page }}" data-i18n-param-total="{{ pg.pages }}" data-i18n-param-count="{{ pg.total }}">Page {{ pg.page }} of {{ pg.pages }} · {{ pg.total }} total</span>
+  {% if pg.has_next %}<a class="btn btn-ghost btn-sm" href="{{ base_path }}?page={{ pg.page + 1 }}" data-i18n="pagination.next">Next →</a>
+  {% else %}<span class="btn btn-ghost btn-sm disabled" data-i18n="pagination.next">Next →</span>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}

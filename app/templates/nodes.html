@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "macros.html" import page_header, badge %}
+{% block title %}Nodes · {{ settings.app_name }}{% endblock %}
+{% block content %}
+
+{{ page_header("Nodes", "Live status of all nodes in the " ~ settings.app_name ~ " network.", i18n_key="nodes.title", i18n_subtitle_key="nodes.subtitle", i18n_subtitle_params={"name": settings.app_name}) }}
+
+<div class="card nodes-summary">
+  <div class="nodes-summary-stats">
+    <div class="nodes-stat">
+      <span class="nodes-stat-value">{{ nodes_online }}</span>
+      <span class="nodes-stat-label" data-i18n="nodes.online_now">Online now</span>
+    </div>
+    <div class="nodes-stat-divider"></div>
+    <div class="nodes-stat">
+      <span class="nodes-stat-value">{{ nodes_total }}</span>
+      <span class="nodes-stat-label" data-i18n="nodes.total_nodes">Total nodes</span>
+    </div>
+    <div class="nodes-stat-divider"></div>
+    <div class="nodes-stat">
+      <span class="nodes-stat-value">{{ nodes_enabled }}</span>
+      <span class="nodes-stat-label" data-i18n="nodes.enabled">Enabled</span>
+    </div>
+    <div class="nodes-stat-divider"></div>
+    <div class="nodes-stat">
+      <span class="nodes-stat-value">{{ nodes_online }}/{{ nodes_total }}</span>
+      <span class="nodes-stat-label" data-i18n="nodes.online_rate">Online rate</span>
+    </div>
+  </div>
+</div>
+
+{% if nodes %}
+<div class="node-grid">
+  {% for node in nodes %}
+  {% set rt = node_runtime[node.id] %}
+  <a href="/portal/new?node_id={{ node.id }}" class="node-card-link">
+    <div class="node-card {% if rt.online %}node-online{% else %}node-offline{% endif %}{% if not node.enabled %} node-disabled{% endif %}">
+      <div class="node-card-header">
+        <div class="node-info">
+          <span class="node-name">{{ node.name }}</span>
+          {% if node.location %}<span class="node-location">{{ node.location }}</span>{% endif %}
+        </div>
+        <div class="node-status">
+          {% if rt.online %}
+            <span class="status-dot dot-online"></span>
+            <span class="status-text" data-i18n="home.online">online</span>
+          {% else %}
+            <span class="status-dot dot-offline"></span>
+            <span class="status-text" data-i18n="home.offline">offline</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="node-card-body">
+        <div class="node-meta">
+          {% if node.asn %}<span class="meta-item"><span class="meta-label" data-i18n="common.asn">ASN</span> {{ node.asn }}</span>{% endif %}
+          {% if node.dn42_ipv4 %}<span class="meta-item mono">{{ node.dn42_ipv4 }}</span>{% endif %}
+          {% if node.dn42_ipv6 %}<span class="meta-item mono">{{ node.dn42_ipv6 }}</span>{% endif %}
+        </div>
+
+        {% if rt.online and rt.system_summary %}
+        <div class="node-summary">{{ rt.system_summary }}</div>
+        {% elif not rt.online %}
+        <div class="node-summary faint">
+          {% if rt.last_seen_at %}
+            <span data-i18n="home.last_seen" data-i18n-param-time="{{ rt.last_seen_at.strftime('%Y-%m-%d %H:%M') }}">Last seen {{ rt.last_seen_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+          {% else %}
+            <span data-i18n="home.no_heartbeat">No heartbeat yet</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if node.url %}
+      <div class="node-card-footer">
+        <span class="node-url mono">{{ node.url }}</span>
+        {% if node.enabled %}
+          <span class="badge badge-ok" data-i18n="status.approved">enabled</span>
+        {% else %}
+          <span class="badge badge-bad" data-i18n="status.disabled">disabled</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state" data-i18n="nodes.no_nodes">No nodes are configured yet.</div>
+{% endif %}
+{% endblock %}

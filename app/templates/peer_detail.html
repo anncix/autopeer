@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "macros.html" import page_header, deploy_badge, bool_pill, copy_button %}
+{% block title %}Peer {{ peer.id[:8] }} - {{ settings.app_name }}{% endblock %}
+{% block content %}
+{% set peer_asn_display = peer.asn | replace("AS", "", 1) if peer.asn else "" %}
+{{ page_header("Peer - AS" ~ peer_asn_display, "On node " ~ node.name ~ ".", i18n_key="detail.title", i18n_subtitle_key="detail.subtitle") }}
+<p><a class="btn btn-ghost btn-sm" href="/portal" data-i18n="detail.back_to_peers">Back to My Peers</a></p>
+
+<div class="split-2">
+  <div class="card">
+    <h2 data-i18n="detail.peer">Peer</h2>
+    <div class="kv">
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="detail.uuid">UUID</span>
+        <span class="kv-val mono">{{ peer.id }}</span>{{ copy_button(peer.id) }}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="detail.enabled">Enabled</span>
+        <span class="kv-val">{{ bool_pill(enabled, "enabled", "disabled", "status.") }}</span>
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="detail.deployment">Deployment</span>
+        <span class="kv-val">{{ deploy_badge(peer.deploy_status) }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="detail.node">Node</h2>
+    <div class="kv">
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.name">Name</span><span class="kv-val">{{ node.name }}{% if node.location %} - {{ node.location }}{% endif %}</span></div>
+      {% set node_asn_display = node_asn | replace("AS", "", 1) if node_asn else "" %}
+      <div class="kv-row"><span class="kv-key" data-i18n="admin.asn">ASN</span><span class="kv-val mono">{% if node_asn_display %}AS{{ node_asn_display }}{% else %}-{% endif %}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.dn42_ipv4">DN42 IPv4</span><span class="kv-val mono">{{ node.dn42_ipv4 or "-" }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.dn42_ipv6">DN42 IPv6</span><span class="kv-val mono">{{ node.dn42_ipv6 or "-" }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.link_local_our">Link-local (our side)</span><span class="kv-val mono">{{ peer.local_link_address or "-" }}</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="split-2">
+  <div class="card">
+    <h2 data-i18n="detail.configure_side">Configure your side</h2>
+    <p class="muted" data-i18n="detail.use_our_side">Use these "our side" details in your own WireGuard + BGP config.</p>
+    <div class="kv">
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.asn">ASN</span>
+        <span class="kv-val mono">{{ "AS" ~ peering.asn if peering.asn != "<our-asn>" else peering.asn }}</span>
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.ipv4">IPv4</span>
+        <span class="kv-val mono">{{ peering.ipv4 or "-" }}</span>{% if peering.ipv4 %}{{ copy_button(peering.ipv4) }}{% endif %}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.ipv6">IPv6</span>
+        <span class="kv-val mono">{{ peering.ipv6 or "-" }}</span>{% if peering.ipv6 %}{{ copy_button(peering.ipv6) }}{% endif %}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.link_local">Link-local</span>
+        <span class="kv-val mono">{{ peering.link_local }}</span>{{ copy_button(peering.link_local) }}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.endpoint">Endpoint</span>
+        <span class="kv-val mono">{{ peering.endpoint }}</span>{{ copy_button(peering.endpoint) }}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="confirm.wg_pubkey">WireGuard public key</span>
+        <span class="kv-val mono">{{ peering.public_key }}</span>{{ copy_button(peering.public_key) }}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="detail.wireguard">WireGuard MTU</span>
+        <span class="kv-val mono">{{ peering.mtu }}</span>
+      </div>
+    </div>
+    <p style="margin-top:12px"><a class="btn btn-secondary btn-sm" href="/portal/peers/{{ peer.id }}/config" data-i18n="detail.view_config">View full config</a></p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="detail.your_submitted">Your submitted details</h2>
+    <div class="kv">
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.your_endpoint">Your endpoint</span><span class="kv-val mono">{{ peer.endpoint or "- (you dial us)" }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.your_wg_pubkey">Your WireGuard public key</span><span class="kv-val mono">{{ peer.wg_public_key }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.your_dn42_ipv4">Your DN42 IPv4</span><span class="kv-val mono">{{ peer.peer_dn42_ipv4 or "-" }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.your_dn42_ipv6">Your DN42 IPv6</span><span class="kv-val mono">{{ peer.peer_dn42_ipv6 or "-" }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="detail.your_bgp_neighbor">Your BGP neighbor address</span><span class="kv-val mono">{{ peer.peer_link_address }}</span></div>
+      <div class="kv-row"><span class="kv-key" data-i18n="confirm.bgp_extensions">BGP extensions</span><span class="kv-val mono" data-i18n="{{ 'confirm.enabled' if peer.bgp_extended else 'confirm.disabled' }}">{{ "enabled" if peer.bgp_extended else "disabled" }}</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="detail.live_status">Live status</h2>
+  {% if status_error %}
+  <pre class="terminal bad">{{ status_error }}</pre>
+  {% else %}
+  <div class="kv">
+    <div class="kv-row"><span class="kv-key" data-i18n="detail.wireguard">WireGuard</span><span class="kv-val mono">{{ wg_status or "-" }}</span></div>
+    <div class="kv-row"><span class="kv-key" data-i18n="detail.bgp_session">BGP session</span><span class="kv-val mono">{{ bgp_status or "-" }}</span></div>
+  </div>
+  {% endif %}
+  <p style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="/portal/peers/{{ peer.id }}" data-i18n="detail.refresh">Refresh</a></p>
+</div>
+
+<div class="card">
+  <h2 data-i18n="detail.danger_zone">Danger zone</h2>
+  <form method="post" action="/portal/peers/{{ peer.id }}/delete"
+        data-confirm="Delete this peer? This tears down the tunnel and BGP session on the node.">
+    <button type="submit" class="btn-danger" data-i18n="detail.delete_peer">Delete this peer</button>
+  </form>
+</div>
+{% endblock %}

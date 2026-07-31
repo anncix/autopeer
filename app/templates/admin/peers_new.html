@@ -1,0 +1,82 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header %}
+{% block title %}Add peer · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Add peer", "Create a new peering across any registered node. After deployment, the peer becomes live and ready for traffic.", i18n_key="admin.add_peer", i18n_subtitle_key="admin.peerings_desc") }}
+
+{% if nodes %}
+<div class="card">
+  <h2 data-i18n="admin.add_peer">Add peer</h2>
+  <form id="admin-add-peer-form" method="post" action="/admin/peers" class="form-grid">
+    <label class="field" data-i18n="admin.peer_asn">Peer ASN
+      <input
+        id="admin-peer-asn"
+        name="asn"
+        placeholder="4242420099"
+        inputmode="numeric"
+        autocomplete="off"
+        required
+      >
+    </label>
+    <label class="field" data-i18n="admin.node">Node
+      <select name="node_id" required>
+        {% for node in nodes %}
+          <option value="{{ node.id }}">
+            {{ node.name }}
+            {%- if node.location %} - {{ node.location }}{% endif -%}
+            {%- if not node.enabled %} (disabled){% endif -%}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field" data-i18n="admin.peer_endpoint">WireGuard endpoint <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="endpoint" placeholder="host:port (blank = peer dials us)">
+    </label>
+    <label class="field" data-i18n="admin.peer_wg_pubkey">WireGuard public key
+      <input name="wg_public_key" placeholder="44-char base64 key" required>
+    </label>
+    <label class="field" data-i18n="admin.peer_mtu">WireGuard MTU
+      <input
+        name="wg_mtu"
+        type="number"
+        min="{{ wireguard_mtu_min }}"
+        max="{{ wireguard_mtu_max }}"
+        value="{{ default_wireguard_mtu }}"
+        required
+      >
+    </label>
+    <label class="field" data-i18n="admin.peer_dn42_ipv4">Peer DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="peer_dn42_ipv4" placeholder="172.20.x.y or 172.20.x.y/32">
+    </label>
+    <label class="field" data-i18n="admin.peer_dn42_ipv6">Peer DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="peer_dn42_ipv6" placeholder="fd00::1 or fd00::1/128">
+    </label>
+    <label class="field" data-i18n="admin.our_address" data-i18n-param-asn="{{ settings.local_asn_number or '' }}">Our address{% if settings.local_asn_number %} (AS{{ settings.local_asn_number }}){% endif %}
+      <input
+        name="local_link_address"
+        value="{{ default_local_link_address }}"
+        placeholder="fe80::1260 or a ULA"
+        required
+      >
+    </label>
+    <label class="field" data-i18n="admin.peer_link_local">Peer link-local address <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input
+        id="admin-peer-link-address"
+        name="peer_link_address"
+        placeholder="fe80::99 or a ULA"
+      >
+    </label>
+    <label class="checkbox-label" data-i18n="new_peer.bgp_extensions">
+      <input type="checkbox" name="bgp_extended" value="1" checked>
+      BGP extensions
+    </label>
+    <button type="submit" class="btn-primary" data-i18n="admin.create_peer">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Create peer</span>
+    </button>
+  </form>
+  {% else %}
+  <div class="empty-state" data-i18n="admin.no_nodes_configured">No nodes are configured yet. Create a node first.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "macros.html" import page_header, code_block %}
+{% block title %}Looking Glass · {{ settings.app_name }}{% endblock %}
+{% block content %}
+<div class="card">
+  {{ page_header("Looking Glass", "Run ping, traceroute, mtr, and route queries from any node.", i18n_key="lg.title", i18n_subtitle_key="lg.subtitle") }}
+  {% if nodes %}
+  <form id="lg-form" method="post" action="/lg" class="form-grid">
+    <label class="field" data-i18n="lg.node">Node
+      <select name="node_id">
+        {% for node in nodes %}
+          <option value="{{ node.id }}">{{ node.name }}{% if node.location %} — {{ node.location }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field" data-i18n="lg.query">Query
+      <select name="query_type">
+        {% for q in ["ping", "trace", "mtr", "route"] %}
+          <option value="{{ q }}" {% if last_query == q %}selected{% endif %}>{{ "traceroute" if q == "trace" else q }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field" data-i18n="lg.target">Target
+      <input name="target" value="{{ last_target or '' }}"
+             data-i18n-placeholder="lg.target_placeholder"
+             placeholder="IP, hostname, or prefix — e.g. 172.20.0.1, wiki.dn42, 1.1.1.0/24">
+    </label>
+    <button type="submit" class="btn-primary" data-i18n="lg.run_query">Run query</button>
+  </form>
+  <div id="lg-result" class="lg-result">
+    {% if lg_result %}{{ code_block(lg_result, ok=lg_ok) }}{% endif %}
+  </div>
+  {% else %}
+  <div class="empty-state" data-i18n="lg.no_nodes">No looking-glass nodes are configured yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

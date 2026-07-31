@@ -1,0 +1,85 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, deploy_badge %}
+{% block title %}Peer {{ peer.id[:8] }} · Peerings · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Peer · AS" ~ peer.asn, "Edit this peering on " ~ peer.node.name ~ ".", i18n_key="detail.title", i18n_subtitle_key="admin.edit_peer_desc") }}
+<p><a class="btn btn-outlined btn-sm" href="/admin/peers" data-i18n="admin.all_peerings_link">
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    <span>All peerings</span>
+  </a></p>
+
+<div class="card">
+  <h2 data-i18n="admin.peer_config">Configuration</h2>
+  <p class="muted"><span data-i18n="detail.uuid">UUID</span> <span class="mono">{{ peer.id }}</span></p>
+  <form method="post" action="/admin/peers/{{ peer.id }}/update" class="form-grid">
+    <label class="field" data-i18n="admin.peer_asn">Peer ASN
+      <input value="AS{{ peer.asn | replace('AS', '', 1) }}" disabled>
+    </label>
+    <label class="field" data-i18n="admin.node">Node
+      <select name="node_id" required>
+        {% for node in nodes %}
+          <option value="{{ node.id }}" {% if peer.node_id == node.id %}selected{% endif %}>
+            {{ node.name }}{% if not node.enabled %} (disabled){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field" data-i18n="admin.peer_endpoint">WireGuard endpoint <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="endpoint" value="{{ peer.endpoint }}" placeholder="host:port (blank = peer dials us)">
+    </label>
+    <label class="field" data-i18n="admin.peer_wg_pubkey">WireGuard public key
+      <input name="wg_public_key" value="{{ peer.wg_public_key }}" required>
+    </label>
+    <label class="field" data-i18n="admin.peer_mtu">WireGuard MTU
+      <input name="wg_mtu" type="number" min="{{ wireguard_mtu_min }}" max="{{ wireguard_mtu_max }}"
+             value="{{ peer.wg_mtu or default_wireguard_mtu }}" required>
+    </label>
+    <label class="field" data-i18n="admin.peer_dn42_ipv4">Peer DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="peer_dn42_ipv4" value="{{ peer.peer_dn42_ipv4 }}" placeholder="172.20.x.y or 172.20.x.y/32">
+    </label>
+    <label class="field" data-i18n="admin.peer_dn42_ipv6">Peer DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="peer_dn42_ipv6" value="{{ peer.peer_dn42_ipv6 }}" placeholder="fd00::1 or fd00::1/128">
+    </label>
+    <label class="field" data-i18n="admin.our_address">Our address
+      <input name="local_link_address" value="{{ peer.local_link_address }}" required>
+    </label>
+    <label class="field" data-i18n="admin.peer_link_local">Peer link-local address <span class="muted" data-i18n="common.optional">(optional)</span>
+      <input name="peer_link_address" value="{{ peer.peer_link_address }}" placeholder="fe80::99 or a ULA">
+    </label>
+    <label class="checkbox-label" data-i18n="new_peer.bgp_extensions">
+      <input type="checkbox" name="bgp_extended" value="1" {% if peer.bgp_extended %}checked{% endif %}>
+      BGP extensions
+    </label>
+    <label class="field" data-i18n="admin.status">Status
+      <select name="status">
+        <option value="approved" {% if peer.status == "approved" %}selected{% endif %} data-i18n="status.approved">approved</option>
+        <option value="disabled" {% if peer.status == "disabled" %}selected{% endif %} data-i18n="status.disabled">disabled</option>
+      </select>
+    </label>
+    <button type="submit" class="btn-primary" data-i18n="admin.save">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="section-title"><h2 data-i18n="admin.deployment">Deployment</h2><span>{{ deploy_badge(peer.deploy_status) }}</span></div>
+  <div class="row-actions edit-actions">
+    <form method="post" action="/admin/peers/{{ peer.id }}/redeploy">
+      <button type="submit" class="btn-secondary btn-sm" data-i18n="admin.redeploy">Redeploy</button>
+    </form>
+    <a href="/admin/peers/{{ peer.id }}/config" class="btn btn-ghost btn-sm" data-i18n="admin.view_config">View config</a>
+    <a href="/admin/peers/{{ peer.id }}/status" class="btn btn-ghost btn-sm" data-i18n="admin.view_live_status">View live status</a>
+  </div>
+  {% if peer.deploy_output %}
+  <div class="status-label" data-i18n="admin.last_deploy_output">Last deploy output</div>
+  <pre class="terminal">{{ peer.deploy_output }}</pre>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 data-i18n="detail.danger_zone">Danger zone</h2>
+  <form method="post" action="/admin/peers/{{ peer.id }}/delete"
+        data-confirm="Delete this peer (AS{{ peer.asn | replace('AS', '', 1) }})? This tears it down on the node.">
+    <button type="submit" class="btn-danger" data-i18n="admin.delete_peer">Delete this peer</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, status_badge, deploy_badge, pagination %}
+{% block title %}Peerings · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Peerings", "Create, edit, redeploy, or remove any peer across all nodes.", i18n_key="admin.peerings", i18n_subtitle_key="admin.peerings_desc") }}
+
+<div class="card">
+  <div class="section-title">
+    <h2 data-i18n="admin.all_peerings">All peerings</h2>
+    <a href="/admin/peers/new" class="btn btn-outlined btn-sm" data-i18n="admin.add_peer">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Add peer</span>
+    </a>
+  </div>
+  {% if peers %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="portal.peer">Peer</th>
+          <th data-i18n="common.asn">ASN</th>
+          <th data-i18n="admin.node">Node</th>
+          <th data-i18n="admin.status">Status</th>
+          <th data-i18n="portal.deploy">Deploy</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for peer in peers %}
+        <tr>
+          <td class="mono"><a href="/admin/peers/{{ peer.id }}/edit">{{ peer.id[:8] }}…</a></td>
+          <td class="mono nowrap">AS{{ peer.asn | replace("AS", "", 1) }}</td>
+          <td>{{ peer.node.name }}</td>
+          <td>{{ status_badge(peer.status) }}</td>
+          <td class="nowrap">{{ deploy_badge(peer.deploy_status) }}</td>
+          <td class="nowrap">
+            <a class="btn btn-outlined btn-sm" href="/admin/peers/{{ peer.id }}/edit" data-i18n="admin.manage">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>Manage</span>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pagination(pg, "/admin/peers") }}
+  {% else %}
+  <div class="empty-state" data-i18n="admin.no_peers">No peers yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

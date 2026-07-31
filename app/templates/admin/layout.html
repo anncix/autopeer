@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+{% set path = request.url.path %}
+<div class="admin-shell">
+  <aside class="sidebar">
+    <span class="sidebar-label">Overview</span>
+    <a href="/admin" class="{{ 'active' if path == '/admin' else '' }}" data-i18n="admin.dashboard">Dashboard</a>
+    <span class="sidebar-label">Manage</span>
+    <a href="/admin/nodes" class="{{ 'active' if path.startswith('/admin/nodes') else '' }}" data-i18n="admin.nodes">Nodes</a>
+    <a href="/admin/peers" class="{{ 'active' if path.startswith('/admin/peers') else '' }}" data-i18n="admin.peerings">Peerings</a>
+    <a href="/admin/users" class="{{ 'active' if path.startswith('/admin/users') else '' }}" data-i18n="admin.members">Members</a>
+    <span class="sidebar-label">Audit</span>
+    <a href="/admin/lg-log" class="{{ 'active' if path.startswith('/admin/lg-log') else '' }}" data-i18n="admin.recent_queries">Query log</a>
+  </aside>
+  <div class="admin-content">
+    {% block admin %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, bool_pill %}
+{% block title %}Nodes · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Nodes", "Nodes connect back over WSS and deploy WireGuard + BIRD configs as root.", i18n_key="admin.nodes", i18n_subtitle_key="admin.nodes_desc") }}
+
+<div class="card">
+  <div class="section-title">
+    <h2 data-i18n="admin.existing_nodes">Existing nodes</h2>
+    <a href="/admin/nodes/new" class="btn btn-outlined btn-sm" data-i18n="admin.add_node">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Add node</span>
+    </a>
+  </div>
+  {% if nodes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="admin.name">Name</th>
+          <th data-i18n="admin.location">Location</th>
+          <th data-i18n="admin.status">Status</th>
+          <th data-i18n="admin.system">System</th>
+          <th data-i18n="admin.enabled">Enabled</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for node in nodes %}
+        {% set rt = node_runtime[node.id] %}
+        <tr>
+          <td><a href="/admin/nodes/{{ node.id }}/edit">{{ node.name }}</a></td>
+          <td>{{ node.location or "—" }}</td>
+          <td class="node-health">
+            <span class="online-state {{ 'is-online' if rt.online else 'is-offline' }}">
+              <span class="online-dot" aria-hidden="true"></span><span data-i18n="{{ 'admin.online' if rt.online else 'admin.offline' }}">{{ "online" if rt.online else "offline" }}</span>
+            </span>
+          </td>
+          <td><span class="system-summary" title="{{ rt.system_summary }}">{{ rt.system_summary }}</span></td>
+          <td>{{ bool_pill(node.enabled, "on", "off", "admin.") }}</td>
+          <td class="nowrap">
+            <a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit" data-i18n="admin.manage">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>Manage</span>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" data-i18n="admin.no_nodes">No nodes yet. Add one above.</div>
+  {% endif %}
+</div>
+{% endblock %}
