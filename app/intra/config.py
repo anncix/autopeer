@@ -21,9 +21,15 @@ from __future__ import annotations
 import re
 import secrets
 from ipaddress import IPv6Address, ip_address
+from typing import TYPE_CHECKING
 
 from app.config import Settings
-from app.db.models import IntraLink, Node
+
+if TYPE_CHECKING:
+    # IntraLink and Node are only used as type annotations; importing them at runtime would create a
+    # circular import (app.db.models -> app.peer -> app.peer.service -> app.db.models). The
+    # ``from __future__ import annotations`` above keeps annotations as strings, so this is safe.
+    from app.db.models import IntraLink, Node
 
 # Base for the 414xx listen-port range; the last two digits are random.
 INTRA_LISTEN_PORT_BASE = 41400
