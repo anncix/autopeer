@@ -259,6 +259,67 @@
     // Refresh once on load so the table reflects any out-of-band changes (e.g. reverse link created
     // on the remote that this page doesn't know about yet).
     refresh();
+
+    // Event-delegated submit handler for the per-row redeploy / delete forms. The table body is
+    // re-rendered by refresh() (innerHTML replaced), so we cannot attach listeners to the forms
+    // directly — delegating on the stable <tbody> survives re-renders. Each form's native action=
+    // POST is the no-JS fallback; with JS on we POST to the /api variant and refresh in place.
+    // 逐行 redeploy / delete 表單的事件委派 submit 處理。表格 body 由 refresh() 重渲染(innerHTML
+    // 替換),故無法直接在 form 上掛監聽器——委派到穩定的 <tbody> 才能在重渲染後存活。每個 form
+    // 的原生 action= POST 是無 JS 回退;JS 啟用時改 POST 到 /api 變體並就地刷新。
+    tbody.addEventListener("submit", function (e) {
+      var f = e.target;
+      if (!f || f.tagName !== "FORM") return;
+      var action = f.getAttribute("action") || "";
+      var isDeploy = /\/intra-links\/[^/]+\/deploy$/.test(action);
+      var isDelete = /\/intra-links\/[^/]+\/delete$/.test(action);
+      if (!isDeploy && !isDelete) return;
+
+      // Stop propagation so the document-level confirm handler (which would re-prompt) does not
+      // fire for a form we have taken over. We run our own confirm check below for delete.
+      // 停止冒泡,讓 document 級的 confirm 處理器(會重複彈框)不對我們接管的 form 觸發。
+      // delete 的 confirm 檢查在下方自行處理。
+      e.stopPropagation();
+      var confirmMsg = f.getAttribute("data-confirm");
+      if (confirmMsg && !window.confirm(confirmMsg)) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+
+      var btn = f.querySelector('button[type="submit"]');
+      var prev = btn ? btn.textContent : "";
+      var workingLabel = isDeploy
+        ? (window.getTranslation ? window.getTranslation("admin.redeployding") : "Redeploying…")
+        : (window.getTranslation ? window.getTranslation("admin.deleting") : "Deleting…");
+      if (btn) { btn.disabled = true; btn.textContent = workingLabel; }
+
+      fetch(action + "/api", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: "HTTP " + r.status }; }); })
+        .then(function (data) {
+          showIntraFlash(flashBox, data.message || "", data.ok);
+          if (data.ok) {
+            refresh();
+          } else if (btn) {
+            // Deploy/delete failed — restore the button so the operator can retry without a reload.
+            // 部署/刪除失敗——還原按鈕讓操作者無需重載即可重試。
+            btn.disabled = false;
+            btn.textContent = prev;
+          }
+        })
+        .catch(function (err) {
+          showIntraFlash(flashBox, "Request failed: " + err, false);
+          if (btn) { btn.disabled = false; btn.textContent = prev; }
+        });
+        // No finally(): on success the button's row is replaced by refresh(), so restoring it
+        // would clobber a row that no longer exists (e.g. after a successful delete). We restore
+        // the button only on failure, handled in the then/catch branches above.
+        // 不用 finally():成功時按鈕所在列已被 refresh() 替換,還原它會操作一個已不存在的列
+        // (例如刪除成功後)。僅在失敗時還原按鈕,於上方 then/catch 分支處理。
+    });
   }
 
   document.addEventListener("DOMContentLoaded", function () {

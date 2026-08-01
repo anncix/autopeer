@@ -203,6 +203,79 @@ def main() -> int:
 
     print()
     print("=" * 60)
+    print("P3 — intra-links deploy/api + delete/api (progressive enhancement)")
+    print("=" * 60)
+    with client:
+        # Grab a link id created in the previous block.
+        resp = client.get(f"/admin/nodes/{fra1.id}/intra-links/json", headers=admin_cookie)
+        links = resp.json().get("links") or []
+        if not links:
+            check("fixture has a link to redeploy/delete", False, "no links in JSON list")
+        else:
+            link_id = links[0]["id"]
+            before_count = db.query(IntraLink).filter_by(node_id=fra1.id).count()
+
+            # 1) redeploy/api: node agent is offline -> deploy fails, but the endpoint must return
+            #    JSON {ok:false, message} (not a 500). The link row is updated to deploy_status=failed.
+            #    node agent 離線 -> 部署失敗,但端點必須回傳 JSON {ok:false, message}(非 500)。
+            resp = client.post(
+                f"/admin/nodes/{fra1.id}/intra-links/{link_id}/deploy/api",
+                headers=admin_cookie,
+            )
+            check("POST /deploy/api -> 200", resp.status_code == 200, f"status={resp.status_code}")
+            body = resp.json()
+            check("POST /deploy/api returns ok (bool)", isinstance(body.get("ok"), bool))
+            check("POST /deploy/api returns message", bool(body.get("message")))
+            # Offline node -> ok should be False (deploy failed), never a crash.
+            check("POST /deploy/api offline node -> ok=false", body.get("ok") is False,
+                  str(body.get("message")))
+
+            # 2) delete/api: deletes the link (best-effort teardown, no live node needed).
+            #    Must return {ok:true, message, count} with count reflecting the deletion.
+            resp = client.post(
+                f"/admin/nodes/{fra1.id}/intra-links/{link_id}/delete/api",
+                headers=admin_cookie,
+            )
+            check("POST /delete/api -> 200", resp.status_code == 200, f"status={resp.status_code}")
+            body = resp.json()
+            check("POST /delete/api returns ok=true", body.get("ok") is True, str(body.get("message")))
+            check("POST /delete/api returns count int", isinstance(body.get("count"), int))
+            after_count = db.query(IntraLink).filter_by(node_id=fra1.id).count()
+            check("delete/api reduced DB count", after_count == before_count - 1,
+                  f"before={before_count} after={after_count}")
+            check("delete/api count matches DB", body.get("count") == after_count,
+                  f"api_count={body.get('count')} db_count={after_count}")
+            # The link must actually be gone from the DB.
+            gone = db.query(IntraLink).filter_by(id=link_id).one_or_none() is None
+            check("deleted link removed from DB", gone)
+
+            # 3) delete/api on an already-deleted link -> 404 JSON (not 500).
+            resp = client.post(
+                f"/admin/nodes/{fra1.id}/intra-links/{link_id}/delete/api",
+                headers=admin_cookie,
+            )
+            check("POST /delete/api double-delete -> 404", resp.status_code == 404,
+                  f"status={resp.status_code}")
+            check("POST /delete/api 404 returns ok=false", resp.json().get("ok") is False)
+
+            # 4) deploy/api on unknown link -> 404 JSON.
+            resp = client.post(
+                f"/admin/nodes/{fra1.id}/intra-links/nope/deploy/api",
+                headers=admin_cookie,
+            )
+            check("POST /deploy/api unknown link -> 404", resp.status_code == 404,
+                  f"status={resp.status_code}")
+
+            # 5) Anonymous -> denied (403, not JSON leak).
+            resp = client.post(
+                f"/admin/nodes/{fra1.id}/intra-links/{links[-1]['id']}/delete/api",
+                follow_redirects=False,
+            )
+            check("POST /delete/api anonymous -> denied (403/redirect)",
+                  resp.status_code in (301, 302, 303, 403), f"status={resp.status_code}")
+
+    print()
+    print("=" * 60)
     print("P3 — _provision_intra_link shared helper (direct unit test)")
     print("=" * 60)
     # Confirm the shared helper produces identical validation for forward and reverse by calling it

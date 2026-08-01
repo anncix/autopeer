@@ -1205,21 +1205,49 @@ def admin_deploy_intra_link(
     link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
     if link is None:
         raise HTTPException(status_code=404, detail="Intra link not found")
-    node = link.node
+    ok, msg = _deploy_intra_link_action(db, link, link.node)
+    flash(request, msg, "success" if ok else "error")
+    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
+
+
+@router.post("/admin/nodes/{node_id}/intra-links/{link_id}/deploy/api")
+def admin_deploy_intra_link_api(
+    node_id: str,
+    link_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """JSON variant of the redeploy endpoint for progressive enhancement.
+
+    Reuses _deploy_intra_link_action so the form and API variants stay in lock-step. Returns
+    {ok, message}; the frontend re-fetches the link list on success to refresh the deploy badge.
+    """
+    link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
+    if link is None:
+        return JSONResponse({"ok": False, "message": "Intra link not found."}, status_code=404)
+    ok, msg = _deploy_intra_link_action(db, link, link.node)
+    return JSONResponse({"ok": ok, "message": msg})
+
+
+def _deploy_intra_link_action(db: Session, link: IntraLink, node: Node) -> tuple[bool, str]:
+    """Deploy (or redeploy) one intra link. Returns (ok, message).
+
+    Shared by the HTML form and the JSON API variant so both sides get identical deploy +
+    error-handling logic. The node may be unreachable; that is recorded on the link row and
+    surfaced as ok=False rather than raising.
+    """
     try:
         result = deploy_intra_link(link, node, settings)
         apply_deploy_result(link, result)
         db.commit()
         if result.get("ok"):
-            flash(request, f"Intra link {link.protocol_name} deployed.", "success")
-        else:
-            flash(request, f"Deploy failed: {result.get('output', 'unknown error')}", "error")
+            return True, f"Intra link {link.protocol_name} deployed."
+        return False, f"Deploy failed: {result.get('output', 'unknown error')}"
     except Exception as exc:  # noqa: BLE001 - node unreachable / rejected; record and surface
         link.deploy_status = "failed"
         link.deploy_output = str(exc)
         db.commit()
-        flash(request, f"Deploy failed: {exc}", "error")
-    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
+        return False, f"Deploy failed: {exc}"
 
 
 @router.post("/admin/nodes/{node_id}/intra-links/{link_id}/delete")
@@ -1233,7 +1261,39 @@ def admin_delete_intra_link(
     link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
     if link is None:
         raise HTTPException(status_code=404, detail="Intra link not found")
-    node = link.node
+    ok, msg = _delete_intra_link_action(db, link, link.node)
+    flash(request, msg, "success" if ok else "error")
+    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
+
+
+@router.post("/admin/nodes/{node_id}/intra-links/{link_id}/delete/api")
+def admin_delete_intra_link_api(
+    node_id: str,
+    link_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """JSON variant of the delete endpoint for progressive enhancement.
+
+    Reuses _delete_intra_link_action. Returns {ok, message, count} — count lets the frontend
+    update the links tab badge without an extra round-trip (though refresh() also re-fetches).
+    """
+    link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
+    if link is None:
+        return JSONResponse({"ok": False, "message": "Intra link not found."}, status_code=404)
+    ok, msg = _delete_intra_link_action(db, link, link.node)
+    count = db.query(func.count(IntraLink.id)).filter(IntraLink.node_id == node_id).scalar() or 0
+    return JSONResponse({"ok": ok, "message": msg, "count": count})
+
+
+def _delete_intra_link_action(db: Session, link: IntraLink, node: Node) -> tuple[bool, str]:
+    """Delete one intra link (best-effort teardown of a deployed tunnel). Returns (ok, message).
+
+    Shared by the HTML form and the JSON API variant. Teardown failures are swallowed: the link
+    record is removed regardless, since a stale DB row pointing at a non-existent tunnel is worse
+    than a tunnel that lingers (the operator can clean up manually on the node).
+    """
+    protocol = link.protocol_name
     if link.deploy_status == "deployed":
         try:
             remove_intra_link(link, node)
@@ -1241,8 +1301,7 @@ def admin_delete_intra_link(
             pass
     db.delete(link)
     db.commit()
-    flash(request, f"Intra link {link.protocol_name} deleted.", "success")
-    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
+    return True, f"Intra link {protocol} deleted."
 
 
 # --------------------------------------------------------------------------- users (POST)
