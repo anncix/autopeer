@@ -134,6 +134,34 @@ class OkResponse(BaseModel):
     message: str
 
 
+def peer_to_dict(peer) -> dict:
+    """Extract the fields shared by PeerOut / PeerAdmin from a PeerRequest ORM row.
+
+    Centralising this avoids drift between the user-scoped and admin serialisers (both build the
+    same base dict, then the admin view adds deploy_output / admin_note). ``node_name`` is injected
+    from the joined ``peer.node`` relation so callers must eager-load it.
+    集中提取 PeerOut / PeerAdmin 共用的字段,避免用户视图与 admin 视图的序列化逻辑漂移。
+    node_name 来自 joined 的 peer.node 关联,调用者须 eager-load。"""
+    return {
+        "id": peer.id,
+        "asn": peer.asn,
+        "node_id": peer.node_id,
+        "node_name": peer.node.name if peer.node else None,
+        "endpoint": peer.endpoint,
+        "wg_public_key": peer.wg_public_key,
+        "wg_mtu": peer.wg_mtu,
+        "local_link_address": peer.local_link_address,
+        "peer_link_address": peer.peer_link_address,
+        "peer_dn42_ipv4": peer.peer_dn42_ipv4,
+        "peer_dn42_ipv6": peer.peer_dn42_ipv6,
+        "bgp_extended": peer.bgp_extended,
+        "status": peer.status,
+        "deploy_status": peer.deploy_status,
+        "created_at": peer.created_at,
+        "updated_at": peer.updated_at,
+    }
+
+
 class PeerCreateRequest(BaseModel):
     """Body for POST /api/v1/peers. The user's own primary_asn is used (not a body field), so a
     user cannot create peers for another AS. node_id must reference an enabled node.
@@ -197,3 +225,21 @@ class NodeUpdateRequest(BaseModel):
     dn42_ipv4: str | None = None
     dn42_ipv6: str | None = None
     enabled: bool | None = None
+
+
+class IntraLinkCreateRequest(BaseModel):
+    """Body for POST /api/v1/admin/nodes/{id}/intra-links. Mirrors the HTML form fields. When a
+    remote_node_id is given, its public key/endpoint auto-fill if blank. ``reverse`` provisions a
+    matching link on the remote node too. All fields validated by Pydantic so a malformed body is
+    rejected with 422 before the handler runs (the previous untyped ``dict`` skipped validation).
+    POST /api/v1/admin/nodes/{id}/intra-links 的请求体。镜像 HTML 表单字段。给定 remote_node_id
+    时,公钥/端点留空则自动填充;reverse 在远端节点一并建立匹配链路。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    remote_node_id: str | None = None
+    remote_public_key: str = ""
+    remote_endpoint: str = ""
+    label: str = ""
+    deploy: bool = False
+    reverse: bool = False

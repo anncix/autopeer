@@ -17,7 +17,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_api_user
-from app.api.schemas import OkResponse, PeerAdmin, PeerCreateRequest, PeerOut, PeerUpdateRequest
+from app.api.schemas import (
+    OkResponse,
+    PeerAdmin,
+    PeerCreateRequest,
+    PeerOut,
+    PeerUpdateRequest,
+    peer_to_dict,
+)
 from app.db.models import User
 from app.db.session import get_db
 from app.peer.queries import enabled_node_by_id, owned_peer_with_node, peers_for_user_with_nodes
@@ -28,36 +35,17 @@ router = APIRouter(prefix="/api/v1/peers", tags=["peers"])
 
 
 def _peer_to_out(peer, *, admin: bool) -> PeerOut | PeerAdmin:
-    """Serialise a peer row, injecting node_name (joined) and gating deploy_output/admin_note
-    behind the admin flag. The schema whitelist does the actual field stripping; this just picks
-    the right model.
-    序列化 peer 行,注入 node_name(joined),并按 admin 标志决定是否含 deploy_output/admin_note。
-    实际字段裁剪由 schema 白名单完成;此处仅挑选正确模型。"""
-    data = {
-        "id": peer.id,
-        "asn": peer.asn,
-        "node_id": peer.node_id,
-        "node_name": peer.node.name if peer.node else None,
-        "endpoint": peer.endpoint,
-        "wg_public_key": peer.wg_public_key,
-        "wg_mtu": peer.wg_mtu,
-        "local_link_address": peer.local_link_address,
-        "peer_link_address": peer.peer_link_address,
-        "peer_dn42_ipv4": peer.peer_dn42_ipv4,
-        "peer_dn42_ipv6": peer.peer_dn42_ipv6,
-        "bgp_extended": peer.bgp_extended,
-        "status": peer.status,
-        "deploy_status": peer.deploy_status,
-        "created_at": peer.created_at,
-        "updated_at": peer.updated_at,
-    }
+    """Serialise a peer row, gating deploy_output/admin_note behind the admin flag. The shared
+    ``peer_to_dict`` builds the common base; the schema whitelist does the actual field stripping.
+    序列化 peer 行,按 admin 标志决定是否含 deploy_output/admin_note。共用 peer_to_dict 构建基础
+    字段;实际字段裁剪由 schema 白名单完成。"""
     if admin:
         return PeerAdmin(
+            **peer_to_dict(peer),
             deploy_output=peer.deploy_output or "",
             admin_note=peer.admin_note or "",
-            **data,
         )
-    return PeerOut(**data)
+    return PeerOut(**peer_to_dict(peer))
 
 
 @router.get("", response_model=list[PeerOut])

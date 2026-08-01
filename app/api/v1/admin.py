@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import require_api_admin
 from app.api.schemas import (
     IntraLinkAdmin,
+    IntraLinkCreateRequest,
     IntraLinkOut,
     OkResponse,
     PeerAdmin,
     UserOut,
+    peer_to_dict,
 )
 from app.db.models import IntraLink, Node, PeerRequest, User
 from app.db.session import get_db
@@ -32,24 +34,9 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 def _peer_to_admin(peer: PeerRequest) -> PeerAdmin:
     return PeerAdmin(
-        id=peer.id,
-        asn=peer.asn,
-        node_id=peer.node_id,
-        node_name=peer.node.name if peer.node else None,
-        endpoint=peer.endpoint,
-        wg_public_key=peer.wg_public_key,
-        wg_mtu=peer.wg_mtu,
-        local_link_address=peer.local_link_address,
-        peer_link_address=peer.peer_link_address,
-        peer_dn42_ipv4=peer.peer_dn42_ipv4,
-        peer_dn42_ipv6=peer.peer_dn42_ipv6,
-        bgp_extended=peer.bgp_extended,
-        status=peer.status,
-        deploy_status=peer.deploy_status,
+        **peer_to_dict(peer),
         deploy_output=peer.deploy_output or "",
         admin_note=peer.admin_note or "",
-        created_at=peer.created_at,
-        updated_at=peer.updated_at,
     )
 
 
@@ -132,26 +119,26 @@ def admin_list_intra_links(
 @router.post("/nodes/{node_id}/intra-links", response_model=IntraLinkAdmin, status_code=201)
 def admin_create_intra_link_api(
     node_id: str,
-    body: dict,
+    body: IntraLinkCreateRequest,
     admin: User = Depends(require_api_admin),
     db: Session = Depends(get_db),
 ):
     """Create an intra link. Reuses _provision_intra_link (the same helper the HTML form and the
-    progressive-enhancement /api endpoint use), so validation + deploy logic is identical. Accepts
-    {remote_node_id, remote_public_key, remote_endpoint, label, deploy, reverse} — reverse creates
-    a matching link on the remote node too.
+    progressive-enhancement /api endpoint use), so validation + deploy logic is identical. A typed
+    Pydantic body (IntraLinkCreateRequest) rejects malformed fields with 422 before the handler.
+    reverse creates a matching link on the remote node too.
     创建 intra-link。复用 _provision_intra_link(与 HTML 表单、渐进增强 /api 端点同一 helper),
-    验证 + 部署逻辑一致。接受 {remote_node_id, remote_public_key, remote_endpoint, label, deploy,
-    reverse}——reverse 会同时在远端节点建立匹配链路。"""
+    验证 + 部署逻辑一致。使用 Pydantic 类型化请求体(IntraLinkCreateRequest),格式错误以 422 拒绝。
+    reverse 会同时在远端节点建立匹配链路。"""
     node = db.query(Node).filter(Node.id == node_id).one_or_none()
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found")
-    remote_node_id = str(body.get("remote_node_id") or "").strip()
-    remote_public_key = str(body.get("remote_public_key") or "")
-    remote_endpoint = str(body.get("remote_endpoint") or "")
-    label = str(body.get("label") or "").strip()
-    deploy = bool(body.get("deploy"))
-    reverse = bool(body.get("reverse"))
+    remote_node_id = (body.remote_node_id or "").strip()
+    remote_public_key = body.remote_public_key
+    remote_endpoint = body.remote_endpoint
+    label = body.label.strip()
+    deploy = body.deploy
+    reverse = body.reverse
 
     remote_node: Node | None = None
     if remote_node_id:

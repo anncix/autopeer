@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.telegram import router as telegram_router
@@ -49,7 +50,45 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach defensive response headers to every response.
+
+    These are defense-in-depth: X-Content-Type-Options stops MIME sniffing, X-Frame-Options
+    blocks clickjacking by framing, Referrer-Policy limits referer leakage, and a restrictive
+    CSP only allows same-origin scripts/styles plus the inline scripts the templates use (theme
+    bootstrap). HSTS is sent only when the request arrived over HTTPS (``https_only`` cookies are
+    already set in that mode), so local HTTP testing is unaffected.
+    防禦性回應標頭:MIME 嗅探防護、框架防護、referrer 限制、限制性 CSP。HSTS 僅於 HTTPS 請求時送出。
+    """
+
+    _HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'"
+        ),
+    }
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # HSTS only over HTTPS — sending it on HTTP would cause browsers to pin a broken host.
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        for key, value in self._HEADERS.items():
+            response.headers.setdefault(key, value)
+        return response
+
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
