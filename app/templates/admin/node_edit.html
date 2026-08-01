@@ -1,87 +1,292 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, copy_button, badge %}
+{% from "macros.html" import page_header, copy_button, badge, deploy_badge, status_badge %}
 {% block title %}{{ node.name }} · Nodes · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Node: " ~ node.name, "Edit this node, view its status, and manage its credentials.", i18n_key="admin.details", i18n_subtitle_key="admin.node_desc") }}
+{{ page_header("Node: " ~ node.name, "Edit this node, view its status, manage credentials, and inspect its peers, internal links, and OSPF topology.", i18n_key="admin.details", i18n_subtitle_key="admin.node_desc") }}
 <p><a class="btn btn-outlined btn-sm" href="/admin/nodes" data-i18n="admin.all_nodes">
     <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     <span>All nodes</span>
   </a></p>
 
-<div class="card">
-  <h2 data-i18n="admin.details">Details</h2>
-  <form method="post" action="/admin/nodes/{{ node.id }}/update" class="form-grid">
-    <label class="field" data-i18n="admin.name">Name<input name="name" value="{{ node.name }}" required></label>
-    <label class="field" data-i18n="admin.location">Location<input name="location" value="{{ node.location }}"></label>
-    <label class="field" data-i18n="admin.public_addr">Public address<input name="url" value="{{ node.url }}" placeholder="pop.example.net or 172.20.0.1" required></label>
-    <label class="field" data-i18n="admin.asn">ASN <span class="muted" data-i18n="common.optional">(optional)</span><input name="asn" value="{{ node.asn }}" placeholder="4242420000"></label>
-    <label class="field" data-i18n="admin.dn42_ipv4">DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span><input name="dn42_ipv4" value="{{ node.dn42_ipv4 }}" placeholder="172.20.0.1"></label>
-    <label class="field" data-i18n="admin.dn42_ipv6">DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span><input name="dn42_ipv6" value="{{ node.dn42_ipv6 }}" placeholder="fd00::1"></label>
-    <label class="checkbox-label" data-i18n="admin.enabled"><input type="checkbox" name="enabled" {% if node.enabled %}checked{% endif %}> Enabled</label>
-    <button type="submit" class="btn-primary" data-i18n="admin.save">Save</button>
-  </form>
-  <p class="muted" style="margin-top:10px" data-i18n="admin.peer_dial_hint">Peers dial this IPv4/IPv6/domain over WireGuard; the listen port is derived from each peer's ASN. A disabled node is hidden from the public site and looking glass.</p>
+{# Horizontal tabs. Active tab persists in the URL hash (#details, #status, #credentials, #peers,
+   #links, #ospf, #danger) via app.js setupTabs(); defaults to #details. #}
+<div class="tabs" role="tablist">
+  <button class="tab-btn is-active" role="tab" data-tab="details" data-i18n="admin.tab_details">Details</button>
+  <button class="tab-btn" role="tab" data-tab="status" data-i18n="admin.tab_status">Status</button>
+  <button class="tab-btn" role="tab" data-tab="credentials" data-i18n="admin.tab_credentials">Credentials</button>
+  <button class="tab-btn" role="tab" data-tab="peers" data-i18n="admin.tab_peers">
+    Peers <span class="tab-count">{{ peer_count }}</span>
+  </button>
+  <button class="tab-btn" role="tab" data-tab="links" data-i18n="admin.tab_links">
+    Links <span class="tab-count">{{ intra_link_count }}</span>
+  </button>
+  <button class="tab-btn" role="tab" data-tab="ospf" data-i18n="admin.tab_ospf">OSPF</button>
+  <button class="tab-btn" role="tab" data-tab="danger" data-i18n="admin.tab_danger">Danger zone</button>
 </div>
 
-<div class="card">
-  <h2 data-i18n="admin.status">Status</h2>
-  <div class="kv">
-    <div class="kv-row">
-      <span class="kv-key" data-i18n="admin.connection">Connection</span>
-      <span class="online-state {{ 'is-online' if runtime.online else 'is-offline' }}">
-        <span class="online-dot" aria-hidden="true"></span><span data-i18n="{{ 'admin.online' if runtime.online else 'admin.offline' }}">{{ "online" if runtime.online else "offline" }}</span>
-      </span>
+{# --- Details tab --- #}
+<section class="tab-panel is-active" data-panel="details" role="tabpanel">
+  <div class="card">
+    <h2 data-i18n="admin.details">Details</h2>
+    <form method="post" action="/admin/nodes/{{ node.id }}/update" class="form-grid">
+      <label class="field" data-i18n="admin.name">Name<input name="name" value="{{ node.name }}" required></label>
+      <label class="field" data-i18n="admin.location">Location<input name="location" value="{{ node.location }}"></label>
+      <label class="field" data-i18n="admin.public_addr">Public address<input name="url" value="{{ node.url }}" placeholder="pop.example.net or 172.20.0.1" required></label>
+      <label class="field" data-i18n="admin.asn">ASN <span class="muted" data-i18n="common.optional">(optional)</span><input name="asn" value="{{ node.asn }}" placeholder="4242420000"></label>
+      <label class="field" data-i18n="admin.dn42_ipv4">DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span><input name="dn42_ipv4" value="{{ node.dn42_ipv4 }}" placeholder="172.20.0.1"></label>
+      <label class="field" data-i18n="admin.dn42_ipv6">DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span><input name="dn42_ipv6" value="{{ node.dn42_ipv6 }}" placeholder="fd00::1"></label>
+      <label class="checkbox-label" data-i18n="admin.enabled"><input type="checkbox" name="enabled" {% if node.enabled %}checked{% endif %}> Enabled</label>
+      <button type="submit" class="btn-primary" data-i18n="admin.save">Save</button>
+    </form>
+    <p class="muted" style="margin-top:10px" data-i18n="admin.peer_dial_hint">Peers dial this IPv4/IPv6/domain over WireGuard; the listen port is derived from each peer's ASN. A disabled node is hidden from the public site and looking glass.</p>
+  </div>
+</section>
+
+{# --- Status tab --- #}
+<section class="tab-panel" data-panel="status" role="tabpanel" hidden>
+  <div class="card">
+    <h2 data-i18n="admin.status">Status</h2>
+    <div class="kv">
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="admin.connection">Connection</span>
+        <span class="online-state {{ 'is-online' if runtime.online else 'is-offline' }}">
+          <span class="online-dot" aria-hidden="true"></span><span data-i18n="{{ 'admin.online' if runtime.online else 'admin.offline' }}">{{ "online" if runtime.online else "offline" }}</span>
+        </span>
+      </div>
+      {% if runtime.last_seen_at %}
+      <div class="kv-row"><span class="kv-key" data-i18n="admin.last_seen">Last seen</span><span class="kv-val">{{ runtime.last_seen_at.strftime("%Y-%m-%d %H:%M") }} UTC</span></div>
+      {% endif %}
+      <div class="kv-row"><span class="kv-key" data-i18n="admin.system">System</span><span class="kv-val">{{ runtime.system_summary }}</span></div>
     </div>
-    {% if runtime.last_seen_at %}
-    <div class="kv-row"><span class="kv-key" data-i18n="admin.last_seen">Last seen</span><span class="kv-val">{{ runtime.last_seen_at.strftime("%Y-%m-%d %H:%M") }} UTC</span></div>
+    {% if runtime.resource_metrics %}
+    <div class="resource-metrics">
+      {% for m in runtime.resource_metrics %}<span class="resource-metric"><span>{{ m.label }}</span>{{ m.value }}</span>{% endfor %}
+    </div>
     {% endif %}
-    <div class="kv-row"><span class="kv-key" data-i18n="admin.system">System</span><span class="kv-val">{{ runtime.system_summary }}</span></div>
+    {% set sys = runtime.system %}
+    {% if sys.wireguard %}
+      <div class="status-label">WireGuard {{ badge("ok", "ok") if sys.wireguard.ok else badge("fail", "bad") }}</div>
+      <pre class="terminal node-status-output">{{ sys.wireguard.output or "(no output)" }}</pre>
+    {% endif %}
+    {% if sys.bird %}
+      <div class="status-label">BIRD {{ badge("ok", "ok") if sys.bird.ok else badge("fail", "bad") }}</div>
+      <pre class="terminal node-status-output">{{ sys.bird.output or "(no output)" }}</pre>
+    {% endif %}
   </div>
-  {% if runtime.resource_metrics %}
-  <div class="resource-metrics">
-    {% for m in runtime.resource_metrics %}<span class="resource-metric"><span>{{ m.label }}</span>{{ m.value }}</span>{% endfor %}
-  </div>
-  {% endif %}
-  {% set sys = runtime.system %}
-  {% if sys.wireguard %}
-    <div class="status-label">WireGuard {{ badge("ok", "ok") if sys.wireguard.ok else badge("fail", "bad") }}</div>
-    <pre class="terminal node-status-output">{{ sys.wireguard.output or "(no output)" }}</pre>
-  {% endif %}
-  {% if sys.bird %}
-    <div class="status-label">BIRD {{ badge("ok", "ok") if sys.bird.ok else badge("fail", "bad") }}</div>
-    <pre class="terminal node-status-output">{{ sys.bird.output or "(no output)" }}</pre>
-  {% endif %}
-</div>
+</section>
 
-<div class="card">
-  <h2 data-i18n="admin.credentials">Credentials</h2>
-  <div class="kv">
-    <div class="kv-row">
-      <span class="kv-key" data-i18n="admin.api_token">API token</span>
-      <span class="kv-val">{{ node.token }}</span>{{ copy_button(node.token) }}
+{# --- Credentials tab --- #}
+<section class="tab-panel" data-panel="credentials" role="tabpanel" hidden>
+  <div class="card">
+    <h2 data-i18n="admin.credentials">Credentials</h2>
+    <div class="kv">
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="admin.api_token">API token</span>
+        <span class="kv-val">{{ node.token }}</span>{{ copy_button(node.token) }}
+      </div>
+      <div class="kv-row">
+        <span class="kv-key" data-i18n="admin.wg_pubkey">WireGuard public key</span>
+        <span class="kv-val">{{ node.wg_public_key or "—" }}</span>
+        {% if node.wg_public_key %}{{ copy_button(node.wg_public_key) }}{% endif %}
+      </div>
     </div>
-    <div class="kv-row">
-      <span class="kv-key" data-i18n="admin.wg_pubkey">WireGuard public key</span>
-      <span class="kv-val">{{ node.wg_public_key or "—" }}</span>
-      {% if node.wg_public_key %}{{ copy_button(node.wg_public_key) }}{% endif %}
+    <div class="row-actions edit-actions">
+      <form method="post" action="/admin/nodes/{{ node.id }}/refresh-pubkey">
+        <button type="submit" class="btn-secondary btn-sm" data-i18n="admin.refresh_key">Refresh key</button>
+      </form>
+      <form method="post" action="/admin/nodes/{{ node.id }}/reset-token"
+            data-confirm="Issue a new API token for {{ node.name }}? The node service must be reconfigured with the new token.">
+        <button type="submit" class="btn-secondary btn-sm" data-i18n="admin.reset_token">Reset token</button>
+      </form>
     </div>
   </div>
-  <div class="row-actions edit-actions">
-    <form method="post" action="/admin/nodes/{{ node.id }}/refresh-pubkey">
-      <button type="submit" class="btn-secondary btn-sm" data-i18n="admin.refresh_key">Refresh key</button>
-    </form>
-    <form method="post" action="/admin/nodes/{{ node.id }}/reset-token"
-          data-confirm="Issue a new API token for {{ node.name }}? The node service must be reconfigured with the new token.">
-      <button type="submit" class="btn-secondary btn-sm" data-i18n="admin.reset_token">Reset token</button>
-    </form>
-  </div>
-</div>
+</section>
 
-<div class="card">
-  <h2 data-i18n="detail.danger_zone">Danger zone</h2>
-  <form method="post" action="/admin/nodes/{{ node.id }}/delete"
-        data-confirm="Delete node {{ node.name }}? This cannot be undone.">
-    <button type="submit" class="btn-danger" data-i18n="admin.delete_node">Delete this node</button>
-  </form>
-</div>
+{# --- Peers tab (dn42 peers homed on this node) --- #}
+<section class="tab-panel" data-panel="peers" role="tabpanel" hidden>
+  <div class="card">
+    <div class="section-title">
+      <h2 data-i18n="admin.peers_on_node">Peers on this node</h2>
+      <a href="/admin/peers/new" class="btn btn-outlined btn-sm" data-i18n="admin.add_peer">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Add peer</span>
+      </a>
+    </div>
+    {% if peer_rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="portal.peer">Peer</th>
+            <th data-i18n="common.asn">ASN</th>
+            <th data-i18n="admin.protocol_name">Protocol</th>
+            <th data-i18n="admin.status">Status</th>
+            <th data-i18n="portal.deploy">Deploy</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in peer_rows %}
+          {% set p = row.peer %}
+          <tr>
+            <td class="mono"><a href="/admin/peers/{{ p.id }}/edit">{{ p.id[:8] }}…</a></td>
+            <td class="mono nowrap">AS{{ p.asn | replace("AS", "", 1) }}</td>
+            <td class="mono nowrap">{{ row.protocol_name }}</td>
+            <td>{{ status_badge(p.status) }}</td>
+            <td class="nowrap">{{ deploy_badge(p.deploy_status) }}</td>
+            <td class="nowrap">
+              <a class="btn btn-outlined btn-sm" href="/admin/peers/{{ p.id }}/status" data-i18n="admin.tab_status">Status</a>
+              <a class="btn btn-ghost btn-sm" href="/admin/peers/{{ p.id }}/edit" data-i18n="admin.manage">Manage →</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" data-i18n="admin.no_peers_on_node">No peers are homed on this node yet.</div>
+    {% endif %}
+  </div>
+</section>
+
+{# --- Links tab (internal iBGP/OSPF backbone links) --- #}
+<section class="tab-panel" data-panel="links" role="tabpanel" hidden>
+  <div class="card">
+    <div class="section-title">
+      <h2 data-i18n="admin.intra_links_on_node">Internal links on this node</h2>
+    </div>
+    <p class="muted" data-i18n="admin.intra_links_desc" data-i18n-param-placeholder="{{ settings.wireguard_private_key_placeholder }}">iBGP/OSPF backbone WireGuard tunnels between your own nodes. Naming: ibgp_xxx.conf, port 414xx, LLA fe80::14:xxxx/64. The private key is read from the node's config (never transmitted) via the {{WIREGUARD_PRIVATE_KEY}} placeholder.</p>
+
+    {# New link form: select a remote node (auto-fills pubkey + endpoint) or enter manually.
+       id="intra-link-form" + the /api endpoint let app.js intercept submit and refresh the list
+       in place; with JS off, the native action= POST still works (full page reload). #}
+    <div id="intra-link-flash" style="margin-bottom:12px"></div>
+    <form id="intra-link-form" method="post" action="/admin/nodes/{{ node.id }}/intra-links" class="form-grid" style="margin-bottom:20px">
+      <label class="field" data-i18n="admin.intra_remote_node">Remote node (auto-fills key + endpoint)
+        <select name="remote_node_id">
+          <option value="" data-i18n="admin.intra_manual">(manual — enter details below)</option>
+          {% for rn in remote_node_choices %}
+          <option value="{{ rn.id }}">{{ rn.name }}{% if rn.location %} - {{ rn.location }}{% endif %}{% if not rn.wg_public_key %} (no pubkey){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field" data-i18n="admin.intra_remote_pubkey">Remote WireGuard public key
+        <input name="remote_public_key" data-i18n-placeholder="admin.intra_remote_pubkey_placeholder" placeholder="44-char base64 key (auto-filled from remote node)">
+      </label>
+      <label class="field" data-i18n="admin.intra_remote_endpoint">Remote endpoint
+        <input name="remote_endpoint" data-i18n-placeholder="admin.intra_remote_endpoint_placeholder" placeholder="host:port (auto-filled from remote node url)">
+      </label>
+      <label class="field" data-i18n="admin.intra_label">Label <span class="muted" data-i18n="common.optional">(optional)</span>
+        <input name="label" data-i18n-placeholder="admin.intra_label_placeholder" placeholder="frankfurt-amsterdam">
+      </label>
+      <label class="checkbox-label" data-i18n="admin.intra_deploy_now">
+        <input type="checkbox" name="deploy" value="1" checked>
+        Deploy immediately
+      </label>
+      <label class="checkbox-label" data-i18n="admin.intra_reverse">
+        <input type="checkbox" name="reverse" value="1">
+        Also create reverse link on remote node (bi-directional)
+      </label>
+      <button type="submit" class="btn-primary" data-i18n="admin.intra_create">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Create link</span>
+      </button>
+    </form>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="admin.intra_protocol">Protocol</th>
+            <th data-i18n="admin.intra_remote">Remote</th>
+            <th data-i18n="admin.intra_port">Port</th>
+            <th data-i18n="admin.intra_lla">Link-local</th>
+            <th data-i18n="portal.deploy">Deploy</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="intra-links-tbody" data-node-id="{{ node.id }}">
+          {% for link in intra_links %}
+          <tr>
+            <td class="mono nowrap">{{ link.protocol_name }}<br><span class="faint">{{ link.label or "" }}</span></td>
+            <td class="mono">
+              {% if link.remote_node %}{{ link.remote_node.name }}<br>{% endif %}
+              <span class="faint">{{ link.remote_endpoint or "—" }}</span>
+            </td>
+            <td class="mono nowrap">{{ link.listen_port }}</td>
+            <td class="mono nowrap">{{ link.link_local_address }}</td>
+            <td class="nowrap">{{ deploy_badge(link.deploy_status) }}</td>
+            <td class="nowrap">
+              <form method="post" action="/admin/nodes/{{ node.id }}/intra-links/{{ link.id }}/deploy" style="display:inline">
+                <button type="submit" class="btn btn-secondary btn-sm" data-i18n="admin.redeploy">Redeploy</button>
+              </form>
+              <form method="post" action="/admin/nodes/{{ node.id }}/intra-links/{{ link.id }}/delete" style="display:inline"
+                    data-confirm="Delete intra link {{ link.protocol_name }}? This tears down the tunnel on the node.">
+                <button type="submit" class="btn-danger btn-sm" data-i18n="admin.delete_peer">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" data-i18n="admin.no_intra_links">No internal links on this node yet.</div>
+    {% endif %}
+  </div>
+</section>
+
+{# --- OSPF tab (links to the full OSPF status page which fetches live data) --- #}
+<section class="tab-panel" data-panel="ospf" role="tabpanel" hidden>
+  <div class="card">
+    <div class="section-title">
+      <h2 data-i18n="admin.ospf_title">OSPF topology</h2>
+      <a href="/admin/nodes/{{ node.id }}/ospf" class="btn btn-secondary btn-sm" data-i18n="detail.view_live_status">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>View live OSPF status</span>
+      </a>
+    </div>
+    <p class="muted" data-i18n="admin.ospf_desc">Reads OSPF neighbors (birdc show ospf neighbor, v4 + v6), OSPF area config files (/etc/bird/ospf/*.conf), and dummy interfaces (ip -o -d addr show type dummy) live from the node agent.</p>
+    <pre class="terminal" style="margin-top:12px">area 0.0.0.0 {
+    interface "&lt;DN42 dummy网卡&gt;" { stub; };
+    interface "&lt;wg0网卡名称&gt;" {
+        cost 80;
+        type ptp;
+    };
+    interface "&lt;wg1网卡名称&gt;" {
+        cost 100;
+        type ptp;
+    };
+};</pre>
+
+    <div class="section-title" style="margin-top:20px">
+      <h2 data-i18n="admin.bird_base_title">DN42 BIRD2 base config</h2>
+      <a href="/admin/nodes/{{ node.id }}/bird-base" class="btn btn-secondary btn-sm" data-i18n="admin.bird_base_open">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Export DN42 base config</span>
+      </a>
+    </div>
+    <p class="muted" data-i18n="admin.bird_base_desc">Generates the shared BIRD2 scaffolding (ROA tables, import/export filters with ROA validation, dnpeers template) that per-peer snippets inherit from. Includes a ROA refresh cron script.</p>
+
+    <div class="section-title" style="margin-top:20px">
+      <h2 data-i18n="admin.flap_title">BGP flap detection</h2>
+      <a href="/admin/nodes/{{ node.id }}/flap" class="btn btn-secondary btn-sm" data-i18n="admin.flap_open">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>View flap timeline</span>
+      </a>
+    </div>
+    <p class="muted" data-i18n="admin.flap_desc">Polls birdc show protocols and records BGP session state transitions (up↔start/down) into a ring buffer. Opening the flap page triggers one poll.</p>
+  </div>
+</section>
+
+{# --- Danger zone tab --- #}
+<section class="tab-panel" data-panel="danger" role="tabpanel" hidden>
+  <div class="card">
+    <h2 data-i18n="detail.danger_zone">Danger zone</h2>
+    <form method="post" action="/admin/nodes/{{ node.id }}/delete"
+          data-confirm="Delete node {{ node.name }}? This cannot be undone.">
+      <button type="submit" class="btn-danger" data-i18n="admin.delete_node">Delete this node</button>
+    </form>
+  </div>
+</section>
 {% endblock %}

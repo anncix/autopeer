@@ -16,12 +16,13 @@ type Server struct {
 	Runner   runner.Runner
 	sem      chan struct{}
 	deployMu sync.Mutex
+	flap     *flapState
 }
 
 // New builds the command dispatcher. When maxConcurrency > 0, looking-glass commands are
 // bounded by a semaphore so public queries cannot exhaust the router's resources.
 func New(r runner.Runner, maxConcurrency int) *Server {
-	s := &Server{Runner: r}
+	s := &Server{Runner: r, flap: newFlapState()}
 	if maxConcurrency > 0 {
 		s.sem = make(chan struct{}, maxConcurrency)
 	}
@@ -59,6 +60,8 @@ func (s *Server) Command(command string, payload json.RawMessage) (any, error) {
 		return s.targetCommand(payload, s.Runner.Mtr)
 	case "lg.route":
 		return s.targetCommand(payload, s.Runner.Route)
+	case "lg.bird":
+		return s.targetCommand(payload, s.Runner.BirdProtocol)
 	case "peers.status":
 		var req peerStatusRequest
 		if err := decodeCommandPayload(payload, &req); err != nil {
@@ -77,6 +80,44 @@ func (s *Server) Command(command string, payload json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return s.removePeer(req), nil
+	case "intra.ospf.neighbors":
+		return s.limitedResult(func() runner.Result { return s.Runner.OspfNeighbors() }), nil
+	case "intra.ospf.configs":
+		release, ok := s.tryAcquire()
+		if !ok {
+			return runner.OspfConfigsResult{OK: false, Error: "node is busy, try again shortly"}, nil
+		}
+		defer release()
+		return s.Runner.ReadOspfConfigs(), nil
+	case "intra.dummy":
+		return s.limitedResult(func() runner.Result { return s.Runner.DummyInterfaces() }), nil
+	case "intra.deploy":
+		var req runner.IntraDeployRequest
+		if err := decodeCommandPayload(payload, &req); err != nil {
+			return nil, err
+		}
+		return s.deployIntraLink(req), nil
+	case "intra.remove":
+		var req runner.RemoveRequest
+		if err := decodeCommandPayload(payload, &req); err != nil {
+			return nil, err
+		}
+		return s.removeIntraLink(req), nil
+	case "flap.check":
+		// Poll birdc show protocols, diff against the last snapshot, record transitions. Bounded by
+		// the LG semaphore so it cannot starve other queries. Returns new events + current states.
+		// 輪詢 birdc show protocols,與上次快照差分,記錄轉換。以 LG 信號量限流,避免餓死其他查詢。
+		// 回傳新事件與當前狀態。
+		release, ok := s.tryAcquire()
+		if !ok {
+			return FlapCheckResponse{OK: false, Error: "node is busy, try again shortly"}, nil
+		}
+		defer release()
+		return s.flap.check(s.Runner), nil
+	case "flap.events":
+		// Return the full buffered flap history (no birdc call, just a memory read).
+		// 回傳完整緩衝的抖動歷史(不呼叫 birdc,僅讀記憶體)。
+		return s.flap.history(), nil
 	default:
 		return nil, fmt.Errorf("unknown command %q", command)
 	}
@@ -92,6 +133,18 @@ func (s *Server) removePeer(req runner.RemoveRequest) runner.DeployResult {
 	s.deployMu.Lock()
 	defer s.deployMu.Unlock()
 	return s.Runner.RemovePeer(req)
+}
+
+func (s *Server) deployIntraLink(req runner.IntraDeployRequest) runner.DeployResult {
+	s.deployMu.Lock()
+	defer s.deployMu.Unlock()
+	return s.Runner.DeployIntraLink(req)
+}
+
+func (s *Server) removeIntraLink(req runner.RemoveRequest) runner.DeployResult {
+	s.deployMu.Lock()
+	defer s.deployMu.Unlock()
+	return s.Runner.RemoveIntraLink(req)
 }
 
 func (s *Server) tryAcquire() (func(), bool) {

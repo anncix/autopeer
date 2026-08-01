@@ -26,6 +26,8 @@ const (
 	defaultWireGuardDir   = "/etc/wireguard"
 	defaultBirdPeerDir    = "/etc/bird/peers"
 	defaultBirdPeerGroup  = "bird"
+	defaultOspfConfigDir  = "/etc/bird/ospf"
+	defaultIpPath         = "ip"
 )
 
 // Config is the node service's full runtime configuration. Field defaults are applied by applyDefaults
@@ -64,6 +66,14 @@ type Config struct {
 
 	WireGuardPeerDir string `json:"wireguard_peer_dir"`
 	BirdPeerDir      string `json:"bird_peer_dir"`
+	// OspfConfigDir is the directory holding OSPF area snippet files (/etc/bird/ospf/*.conf) that
+	// the intra-link UI reads back to display the node's OSPF topology. Read-only on the agent side.
+	// OspfConfigDir 為存放 OSPF area 片段的目錄(/etc/bird/ospf/*.conf),內網鏈路 UI 會讀回以展示節點的
+	// OSPF 拓撲。agent 端僅讀取。
+	OspfConfigDir string `json:"ospf_config_dir"`
+	// IpPath is the `ip` binary used to list dummy interfaces (ip -o -d addr show type dummy).
+	// IpPath 為用於列出 dummy 介面的 `ip` 執行檔。
+	IpPath string `json:"ip_path"`
 	// BirdPeerGroup is the group that should own the BIRD peer dir and the per-peer snippet files the
 	// node service writes. The node service runs as root, but the BIRD daemon runs unprivileged (typically user
 	// `bird`) and could not otherwise read root-owned snippets, so `birdc configure` fails with
@@ -124,6 +134,8 @@ func (c *Config) applyDefaults() {
 
 	c.WireGuardPeerDir = orDefault(c.WireGuardPeerDir, defaultWireGuardDir)
 	c.BirdPeerDir = orDefault(c.BirdPeerDir, defaultBirdPeerDir)
+	c.OspfConfigDir = orDefault(c.OspfConfigDir, defaultOspfConfigDir)
+	c.IpPath = orDefault(c.IpPath, defaultIpPath)
 	c.DeployReloadCmd = strings.TrimSpace(c.DeployReloadCmd)
 
 	c.WireGuardPrivateKey = strings.TrimSpace(c.WireGuardPrivateKey)

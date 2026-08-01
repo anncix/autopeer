@@ -24,9 +24,11 @@ type Runner struct {
 	PingPath         string
 	WgPath           string
 	WgQuickPath      string
+	IpPath           string
 	Timeout          time.Duration
 	WireGuardPeerDir string
 	BirdPeerDir      string
+	OspfConfigDir    string
 	BirdPeerGroup    string
 	DeployReloadCmd  string
 	WireGuardKey     string
@@ -89,9 +91,11 @@ func New(cfg config.Config) Runner {
 		PingPath:         cfg.PingPath,
 		WgPath:           cfg.WgPath,
 		WgQuickPath:      cfg.WgQuickPath,
+		IpPath:           cfg.IpPath,
 		Timeout:          cfg.Timeout(),
 		WireGuardPeerDir: cfg.WireGuardPeerDir,
 		BirdPeerDir:      cfg.BirdPeerDir,
+		OspfConfigDir:    cfg.OspfConfigDir,
 		BirdPeerGroup:    cfg.BirdGroup(),
 		DeployReloadCmd:  cfg.DeployReloadCmd,
 		WireGuardKey:     cfg.WireGuardPrivateKey,
@@ -293,6 +297,21 @@ func (r Runner) Route(target string) Result {
 	return r.run(r.BirdcPath, "show", "route", "for", target)
 }
 
+// BirdProtocol runs `birdc show protocols all <name>` (the "birdc s p all xxx" command) for the
+// public looking glass. It is the same command PeerStatus issues for a single peer, exposed here
+// as a public LG query type so an operator can inspect any BIRD protocol by name. protocolName is
+// validated by safeNameRE and passed as fixed argv, never a shell.
+// BirdProtocol 執行 `birdc show protocols all <name>`(即 "birdc s p all xxx"),作為公開 LG 查詢類型,
+// 讓操作者可依名稱檢視任一 BIRD 協定。與 PeerStatus 對單一對等下達的指令相同。protocolName 經
+// safeNameRE 驗證並以固定 argv 傳入。
+func (r Runner) BirdProtocol(protocolName string) Result {
+	protocolName = strings.TrimSpace(protocolName)
+	if !safeNameRE.MatchString(protocolName) {
+		return Result{OK: false, Output: "invalid protocol name"}
+	}
+	return r.run(r.BirdcPath, "show", "protocols", "all", protocolName)
+}
+
 func (r Runner) WireGuardStatus() Result {
 	return r.run(r.WgPath, "show")
 }
@@ -304,6 +323,91 @@ func (r Runner) BirdStatus() Result {
 		"birdc show status:\n" + status.Output + "\n\nbirdc show protocols all:\n" + protocols.Output,
 	)
 	return Result{OK: status.OK && protocols.OK, Output: output}
+}
+
+// OspfNeighbors runs `birdc show ospf neighbor` (the "birdc s o n" short form) to list OSPF neighbor
+// sessions. BIRD2 unifies IPv4/IPv6 OSPF into one protocol instance, so a single invocation surfaces
+// both v4 and v6 neighbors; the output is returned verbatim for the intra-link UI to render.
+// OspfNeighbors 執行 `birdc show ospf neighbor`(即 "birdc s o n" 簡寫)以列出 OSPF 鄰居工作階段。
+// BIRD2 將 IPv4/IPv6 OSPF 統一為單一協定實例,故單次呼叫即可同時呈現 v4 與 v6 鄰居;輸出原樣回傳供
+// 內網鏈路 UI 呈現。
+func (r Runner) OspfNeighbors() Result {
+	return r.run(r.BirdcPath, "show", "ospf", "neighbor")
+}
+
+// BirdProtocols runs `birdc show protocols` (the overview, no "all" detail) and returns the raw
+// output. Used by the flap detector to poll BGP protocol states without the heavier per-protocol
+// detail dump. Output is returned verbatim; parsing happens in api.flapState.
+// BirdProtocols 執行 `birdc show protocols`(概覽,不含 "all" 詳情)並回傳原始輸出。供抖動偵測器
+// 輪詢 BGP 協定狀態,避免較重的 per-protocol 詳情傾印。輸出原樣回傳;解析在 api.flapState 進行。
+func (r Runner) BirdProtocols() Result {
+	return r.run(r.BirdcPath, "show", "protocols")
+}
+
+// OspfConfigFile is one OSPF area snippet read back from the node's ospf_config_dir.
+type OspfConfigFile struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+// OspfConfigsResult holds the OSPF area snippet files found under ospf_config_dir (/etc/bird/ospf/*.conf).
+// The intra-link UI displays these so operators can see the area/interface topology (dummy stub,
+// wg interfaces with cost/type ptp) without SSH-ing into the node.
+// OspfConfigsResult 存放 ospf_config_dir(/etc/bird/ospf/*.conf)下的 OSPF area 片段檔。內網鏈路 UI
+// 展示這些檔案,讓操作者無須 SSH 進節點即可看到 area/介面拓撲(dummy stub、wg 介面的 cost/type ptp)。
+type OspfConfigsResult struct {
+	OK    bool            `json:"ok"`
+	Files []OspfConfigFile `json:"files"`
+	Error string          `json:"error"`
+}
+
+// ReadOspfConfigs reads every *.conf file directly under r.OspfConfigDir and returns their contents.
+// It is read-only: the agent never writes OSPF snippets (those are managed by the operator or a
+// future topology generator). Only the top level is scanned (no recursion); non-.conf files and
+// subdirectories are skipped. Missing dir → OK=true with empty files (nothing configured yet).
+// ReadOspfConfigs 讀取 r.OspfConfigDir 下的所有 *.conf 檔並回傳內容。此為唯讀:agent 永不寫入 OSPF
+// 片段(由操作者或未來的拓撲產生器管理)。僅掃描頂層(不遞迴);非 .conf 檔與子目錄會被略過。
+// 目錄不存在 → OK=true 且檔案為空(尚未設定)。
+func (r Runner) ReadOspfConfigs() OspfConfigsResult {
+	entries, err := os.ReadDir(r.OspfConfigDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return OspfConfigsResult{OK: true, Files: []OspfConfigFile{}}
+		}
+		return OspfConfigsResult{OK: false, Error: err.Error()}
+	}
+	files := make([]OspfConfigFile, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".conf") {
+			continue
+		}
+		full := filepath.Join(r.OspfConfigDir, name)
+		// Defence-in-depth: resolve and confirm the path stays inside OspfConfigDir so a
+		// symlinked entry cannot escape (os.ReadDir lists names, but the join is what we read).
+		if err := ensureChildPath(r.OspfConfigDir, full); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		files = append(files, OspfConfigFile{Name: name, Content: string(data)})
+	}
+	return OspfConfigsResult{OK: true, Files: files}
+}
+
+// DummyInterfaces lists dummy network interfaces with their addresses via
+// `ip -o -d addr show type dummy`. The intra-link/OSPF UI shows these because the dn42 dummy
+// interface (carrying the node's own dn42 IPs) is typically referenced as a stub in the OSPF area
+// config. Output is returned verbatim.
+// DummyInterfaces 透過 `ip -o -d addr show type dummy` 列出 dummy 網路介面及其位址。內網鏈路/OSPF UI
+// 展示這些資訊,因為承載節點自身 dn42 IP 的 dn42 dummy 介面通常在 OSPF area 設定中以 stub 引用。輸出原樣回傳。
+func (r Runner) DummyInterfaces() Result {
+	return r.run(r.IpPath, "-o", "-d", "addr", "show", "type", "dummy")
 }
 
 // PeerStatus returns the detailed BIRD protocol state for a single peer, used by the per-peer
@@ -379,13 +483,9 @@ func (r Runner) DeployPeer(req DeployRequest) DeployResult {
 	}
 
 	output := "deployed peer config"
-	down := r.run(r.WgQuickPath, "down", files[0])
-	if down.Output != "" {
-		output = strings.TrimSpace(output + "\nwg-quick down:\n" + down.Output)
-	}
-	up := r.run(r.WgQuickPath, "up", files[0])
-	output = strings.TrimSpace(output + "\nwg-quick up:\n" + up.Output)
-	if !up.OK {
+	wgRes := r.applyWireGuard(req.ProtocolName, files[0])
+	output = strings.TrimSpace(output + "\n" + wgRes.Output)
+	if !wgRes.OK {
 		return DeployResult{OK: false, Applied: true, Output: output, Files: files}
 	}
 	if r.DeployReloadCmd != "" {
@@ -429,6 +529,106 @@ func (r Runner) RemovePeer(req RemoveRequest) DeployResult {
 		if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return DeployResult{OK: false, Applied: true, Output: strings.TrimSpace(output + "\n" + err.Error()), Files: files}
 		}
+	}
+	if r.DeployReloadCmd != "" {
+		reload := r.run(strings.Fields(r.DeployReloadCmd)...)
+		output = strings.TrimSpace(output + "\n" + reload.Output)
+		if !reload.OK {
+			return DeployResult{OK: false, Applied: true, Output: output, Files: files}
+		}
+	}
+	return DeployResult{OK: true, Applied: true, Output: output, Files: files}
+}
+
+// IntraDeployRequest carries a generated WireGuard config for an internal (iBGP/OSPF backbone)
+// link between two of our own nodes. Unlike DeployRequest it carries no BIRD snippet: intra links
+// rely on OSPF (configured separately under ospf_config_dir) rather than per-peer BGP, so only the
+// WireGuard tunnel file is written. The private key uses the same {{WIREGUARD_PRIVATE_KEY}}
+// placeholder so it never leaves the node.
+// IntraDeployRequest 帶有兩個自有節點之間內網鏈路(iBGP/OSPF 骨幹)的已產生 WireGuard 設定。與
+// DeployRequest 不同,它不含 BIRD 片段:內網鏈路仰賴 OSPF(另行設定於 ospf_config_dir)而非每對等的
+// BGP,故僅寫入 WireGuard 隧道檔。私鑰使用相同的 {{WIREGUARD_PRIVATE_KEY}} 佔位符,故永不離開節點。
+type IntraDeployRequest struct {
+	RequestID       string `json:"request_id"`
+	ProtocolName    string `json:"protocol_name"`
+	WireGuardConfig string `json:"wireguard_config"`
+}
+
+// DeployIntraLink writes the WireGuard config for an internal link and brings the tunnel up. It is
+// a slimmed-down DeployPeer: only the wg-quick file is written (no BIRD peer snippet), the private
+// key placeholder is substituted locally, and the deploy reload command (typically `birdc
+// configure`) is still run so OSPF picks up the new interface if its area snippet references it.
+// DeployIntraLink 寫入內網鏈路的 WireGuard 設定並啟動隧道。它是精簡版的 DeployPeer:僅寫入 wg-quick
+// 檔(無 BIRD 對等片段),私鑰佔位符於本地替換,並仍執行 deploy reload 指令(通常為 `birdc configure`),
+// 使 OSPF 在其 area 片段參照新介面時能將其納入。
+func (r Runner) DeployIntraLink(req IntraDeployRequest) DeployResult {
+	req.ProtocolName = strings.TrimSpace(req.ProtocolName)
+	req.WireGuardConfig = strings.TrimSpace(req.WireGuardConfig)
+	if req.RequestID == "" {
+		return DeployResult{OK: false, Output: "request_id is required"}
+	}
+	if !safeNameRE.MatchString(req.ProtocolName) {
+		return DeployResult{OK: false, Output: "invalid protocol_name"}
+	}
+	if err := validateConfigSnippet("wireguard_config", req.WireGuardConfig); err != nil {
+		return DeployResult{OK: false, Output: err.Error()}
+	}
+
+	wgFile := filepath.Join(r.WireGuardPeerDir, req.ProtocolName+".conf")
+	files := []string{wgFile}
+	if err := ensureChildPath(r.WireGuardPeerDir, wgFile); err != nil {
+		return DeployResult{OK: false, Output: err.Error()}
+	}
+	wireGuardConfig, err := r.renderWireGuardConfig(req.WireGuardConfig)
+	if err != nil {
+		return DeployResult{OK: false, Output: err.Error(), Files: files}
+	}
+	if err := writeConfigFile(wgFile, wireGuardConfig+"\n"); err != nil {
+		return DeployResult{OK: false, Output: err.Error(), Files: files}
+	}
+
+	output := "deployed intra-link config"
+	wgRes := r.applyWireGuard(req.ProtocolName, wgFile)
+	output = strings.TrimSpace(output + "\n" + wgRes.Output)
+	if !wgRes.OK {
+		return DeployResult{OK: false, Applied: true, Output: output, Files: files}
+	}
+	if r.DeployReloadCmd != "" {
+		reload := r.run(strings.Fields(r.DeployReloadCmd)...)
+		output = strings.TrimSpace(output + "\n" + reload.Output)
+		if !reload.OK {
+			return DeployResult{OK: false, Applied: true, Output: output, Files: files}
+		}
+	}
+	return DeployResult{OK: true, Applied: true, Output: output, Files: files}
+}
+
+// RemoveIntraLink tears down an internal link: wg-quick down (if the file exists) then remove the
+// WireGuard config file, then reload. The OSPF snippet is left untouched (operator-managed).
+// RemoveIntraLink 拆除內網鏈路:wg-quick down(若檔案存在)後刪除 WireGuard 設定檔,再 reload。
+// OSPF 片段保持不動(由操作者管理)。
+func (r Runner) RemoveIntraLink(req RemoveRequest) DeployResult {
+	req.ProtocolName = strings.TrimSpace(req.ProtocolName)
+	if req.RequestID == "" {
+		return DeployResult{OK: false, Output: "request_id is required"}
+	}
+	if !safeNameRE.MatchString(req.ProtocolName) {
+		return DeployResult{OK: false, Output: "invalid protocol_name"}
+	}
+	wgFile := filepath.Join(r.WireGuardPeerDir, req.ProtocolName+".conf")
+	files := []string{wgFile}
+	if err := ensureChildPath(r.WireGuardPeerDir, wgFile); err != nil {
+		return DeployResult{OK: false, Output: err.Error()}
+	}
+	output := "removed intra-link config"
+	if _, err := os.Stat(wgFile); err == nil {
+		down := r.run(r.WgQuickPath, "down", wgFile)
+		if down.Output != "" {
+			output = strings.TrimSpace(output + "\nwg-quick down:\n" + down.Output)
+		}
+	}
+	if err := os.Remove(wgFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return DeployResult{OK: false, Applied: true, Output: strings.TrimSpace(output+"\n"+err.Error()), Files: files}
 	}
 	if r.DeployReloadCmd != "" {
 		reload := r.run(strings.Fields(r.DeployReloadCmd)...)
@@ -563,4 +763,84 @@ func writeConfigFile(path string, content string) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// applyWireGuard brings a WireGuard interface up or hot-reloads it without dropping existing
+// tunnels. It mirrors peerman's differential-update approach:
+//
+//  1. If the interface does not exist yet (first deploy), run `wg-quick up <conf>`.
+//  2. If it already exists (redeploy), run `wg syncconf <iface> <stripped>` — a differential
+//     update that adds/modifies peers without down/up, so live sessions stay up. The stripped
+//     config is produced by `wg-quick strip <conf>`, which removes wg-quick-only directives
+//     (Table, PostUp, Address, MTU …) and leaves only what `wg` understands.
+//  3. If syncconf fails (e.g. ListenPort/Address changed — syncconf cannot apply those), fall
+//     back to `wg-quick down` + `wg-quick up` so the new [Interface] settings take effect.
+//
+// Returns the human-readable command output (for the deploy_output field) and OK=true on success.
+// applyWireGuard 啟動 WireGuard 介面或在不中斷現有隧道的情況下熱重載。對應 peerman 的差分更新做法:
+//
+//  1. 介面尚不存在(首次部署)→ `wg-quick up <conf>`。
+//  2. 介面已存在(重新部署)→ `wg syncconf <iface> <stripped>`,差分更新,新增/修改對等而不 down/up,
+//     現有會話保持連線。stripped 設定由 `wg-quick strip <conf>` 產生,會移除 wg-quick 專用指令
+//     (Table、PostUp、Address、MTU…),僅保留 `wg` 能理解的欄位。
+//  3. syncconf 失敗(例如 ListenPort/Address 變更——syncconf 無法套用此類欄位)時,回退為
+//     `wg-quick down` + `wg-quick up`,使新的 [Interface] 設定生效。
+//
+// 回傳人類可讀的指令輸出(寫入 deploy_output 欄位),成功時 OK=true。
+func (r Runner) applyWireGuard(protocolName, confPath string) Result {
+	// 探測介面是否已存在:`wg show <iface>` 成功代表介面已啟動。
+	exists := r.run(r.WgPath, "show", protocolName)
+
+	if !exists.OK {
+		// 介面不存在 → 首次以 wg-quick up 啟動(會建立介面、套用 [Interface] 與 [Peer])。
+		up := r.run(r.WgQuickPath, "up", confPath)
+		if !up.OK {
+			return Result{OK: false, Output: "wg-quick up:\n" + up.Output}
+		}
+		return Result{OK: true, Output: "wg-quick up (first deploy):\n" + up.Output}
+	}
+
+	// 介面已存在 → 以 wg-quick strip 取得僅含 wg 欄位的設定,再 wg syncconf 差分套用。
+	// 不使用 shell 的 <(...) 進程替換,改為兩步驟 + 臨時檔,避免依賴 shell 且可控制權限。
+	strip := r.run(r.WgQuickPath, "strip", confPath)
+	if !strip.OK {
+		// strip 失敗通常是設定檔語法錯誤;回退 down/up 亦無益,直接回報。
+		return Result{OK: false, Output: "wg-quick strip:\n" + strip.Output}
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(confPath), ".syncconf-*.tmp")
+	if err != nil {
+		return Result{OK: false, Output: "create syncconf temp file: " + err.Error()}
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	// syncconf 設定檔不含私鑰(strip 已移除),但仍以 0600 避免洩漏 peer 金鑰。
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return Result{OK: false, Output: "chmod syncconf temp file: " + err.Error()}
+	}
+	if _, err := tmp.WriteString(strip.Output + "\n"); err != nil {
+		_ = tmp.Close()
+		return Result{OK: false, Output: "write syncconf temp file: " + err.Error()}
+	}
+	if err := tmp.Close(); err != nil {
+		return Result{OK: false, Output: "close syncconf temp file: " + err.Error()}
+	}
+
+	sync := r.run(r.WgPath, "syncconf", protocolName, tmpName)
+	if sync.OK {
+		return Result{OK: true, Output: "wg syncconf (hot reload, no downtime):\n" + sync.Output}
+	}
+
+	// syncconf 失敗(常見於 ListenPort/Address 變更)→ 回退 down/up,確保新設定生效。
+	down := r.run(r.WgQuickPath, "down", confPath)
+	up := r.run(r.WgQuickPath, "up", confPath)
+	fallback := "wg syncconf failed, fell back to down/up:\n" +
+		"syncconf:\n" + sync.Output + "\n" +
+		"down:\n" + down.Output + "\n" +
+		"up:\n" + up.Output
+	if up.OK {
+		return Result{OK: true, Output: fallback}
+	}
+	return Result{OK: false, Output: fallback}
 }

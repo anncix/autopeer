@@ -65,6 +65,10 @@ def _ensure_indexes() -> None:
         "lg_queries": {
             "ix_lg_queries_created_at": "created_at",
         },
+        "intra_links": {
+            "ix_intra_links_created_at": "created_at",
+            "ix_intra_links_updated_at": "updated_at",
+        },
     }
     with engine.begin() as conn:
         for table, table_indexes in indexes.items():

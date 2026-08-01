@@ -1,0 +1,43 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, code_block %}
+{% block title %}OSPF · {{ node.name }} · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("OSPF status · " ~ node.name, "OSPF neighbors, area config files, and dummy interfaces read live from the node.", i18n_key="admin.ospf_title", i18n_subtitle_key="admin.ospf_desc") }}
+<p><a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit#ospf" data-i18n="common.back">
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    <span>Back to node</span>
+  </a>
+  <a class="btn btn-ghost btn-sm" href="/admin/nodes/{{ node.id }}/ospf" data-i18n="detail.refresh">↻ Refresh</a></p>
+
+<div class="card">
+  {% if error %}
+  <pre class="terminal bad">{{ error }}</pre>
+  {% else %}
+  <div class="status-label" data-i18n="admin.ospf_neighbors">OSPF neighbors (birdc show ospf neighbor — v4 + v6)</div>
+  {% if ospf_neighbors %}
+    {{ code_block(ospf_neighbors) }}
+  {% else %}
+  <pre class="terminal" data-i18n="admin.ospf_no_neighbors">(no output / no OSPF neighbors)</pre>
+  {% endif %}
+
+  <div class="status-label" style="margin-top:16px" data-i18n="admin.ospf_configs">OSPF area config files (/etc/bird/ospf/*.conf)</div>
+  {% if ospf_files %}
+    {% for f in ospf_files %}
+    <div class="config-file-block">
+      <div class="config-file-name mono">{{ f.name }}</div>
+      {{ code_block(f.content or "") }}
+    </div>
+    {% endfor %}
+  {% else %}
+  <pre class="terminal" data-i18n="admin.ospf_no_configs">(no .conf files found under the node's ospf_config_dir)</pre>
+  {% endif %}
+
+  <div class="status-label" style="margin-top:16px" data-i18n="admin.dummy_interfaces">Dummy interfaces (ip -o -d addr show type dummy)</div>
+  {% if dummy %}
+    {{ code_block(dummy) }}
+  {% else %}
+  <pre class="terminal" data-i18n="admin.ospf_no_dummy">(no output / no dummy interfaces)</pre>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

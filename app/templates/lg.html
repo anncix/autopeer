@@ -14,14 +14,14 @@
       </select>
     </label>
     <label class="field" data-i18n="lg.query">Query
-      <select name="query_type">
-        {% for q in ["ping", "trace", "mtr", "route"] %}
-          <option value="{{ q }}" {% if last_query == q %}selected{% endif %}>{{ "traceroute" if q == "trace" else q }}</option>
+      <select name="query_type" id="lg-query-type">
+        {% for q in ["ping", "trace", "mtr", "route", "bird"] %}
+          <option value="{{ q }}" {% if last_query == q %}selected{% endif %}>{% if q == "trace" %}traceroute{% elif q == "bird" %}BIRD protocol{% else %}{{ q }}{% endif %}</option>
         {% endfor %}
       </select>
     </label>
     <label class="field" data-i18n="lg.target">Target
-      <input name="target" value="{{ last_target or '' }}"
+      <input name="target" id="lg-target" value="{{ last_target or '' }}"
              data-i18n-placeholder="lg.target_placeholder"
              placeholder="IP, hostname, or prefix — e.g. 172.20.0.1, wiki.dn42, 1.1.1.0/24">
     </label>

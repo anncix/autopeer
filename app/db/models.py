@@ -140,6 +140,44 @@ class PeerRequest(Base):
     node: Mapped[Node] = relationship()
 
 
+class IntraLink(Base):
+    """An internal WireGuard link (iBGP/OSPF backbone) between two of our own nodes.
+
+    Distinct from PeerRequest (which is a dn42 peering to an external AS): an intra link tunnels
+    between node A (the local node this link is deployed on) and a remote endpoint, using the
+    ``ibgp_<suffix>`` naming convention and an OSPF area config (read back from the node) rather
+    than per-peer BGP. The private key never leaves the node: the generated WireGuard config uses
+    the ``{{WIREGUARD_PRIVATE_KEY}}`` placeholder, substituted by the agent at deploy time.
+    """
+
+    __tablename__ = "intra_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    # node_id is node A (local): the node this link is deployed on.
+    node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
+    # remote_node_id is node B (optional): when the remote is another registered node we can
+    # auto-fill its public key/endpoint. Nullable for links to manually-specified remotes.
+    remote_node_id: Mapped[str | None] = mapped_column(
+        ForeignKey("nodes.id"), nullable=True, index=True
+    )
+    label: Mapped[str] = mapped_column(String(64), default="")
+    # protocol_name is the wg-quick interface name, .conf filename, and BIRD protocol name.
+    # Convention: ibgp_<4-hex> (9 chars, within the 15-char IFNAMSIZ limit, matches safeNameRE).
+    protocol_name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    remote_public_key: Mapped[str] = mapped_column(String(128))
+    remote_endpoint: Mapped[str] = mapped_column(String(255), default="")
+    listen_port: Mapped[int] = mapped_column(Integer)
+    link_local_address: Mapped[str] = mapped_column(String(128), default="")
+    deploy_status: Mapped[str] = mapped_column(String(32), default="not_deployed", index=True)
+    deploy_output: Mapped[str] = mapped_column(Text, default="")
+    deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    node: Mapped[Node] = relationship(foreign_keys=[node_id])
+    remote_node: Mapped["Node | None"] = relationship(foreign_keys=[remote_node_id])
+
+
 class LGQuery(Base):
     __tablename__ = "lg_queries"
 

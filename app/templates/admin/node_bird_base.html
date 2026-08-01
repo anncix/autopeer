@@ -1,0 +1,35 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, code_block, copy_button %}
+{% block title %}DN42 base config · {{ node.name }} · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("DN42 BIRD2 base config · " ~ node.name, "Shared BIRD2 scaffolding (ROA tables, import/export filters, dnpeers template) that per-peer snippets inherit from. Copy into /etc/bird/peers/00_dn42_base.conf and include it from your bird.conf.", i18n_key="admin.bird_base_title", i18n_subtitle_key="admin.bird_base_desc") }}
+<p><a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit" data-i18n="admin.back_to_node">
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    <span>Back to node</span>
+  </a></p>
+
+<div class="card">
+  <div class="section-title">
+    <h2 data-i18n="admin.bird_base_config">DN42 BIRD2 base configuration</h2>
+    {{ copy_button(bird_base, "Copy config") }}
+  </div>
+  <p class="muted" data-i18n="admin.bird_base_install_hint">
+    Install: save as <code>/etc/bird/peers/00_dn42_base.conf</code> and add
+    <code>include "/etc/bird/peers/*.conf";</code> to your <code>bird.conf</code>.
+    Local ASN: {{ local_asn }}.
+  </p>
+  {{ code_block(bird_base) }}
+</div>
+
+<div class="card" style="margin-top:20px">
+  <div class="section-title">
+    <h2 data-i18n="admin.roa_refresh_script">ROA refresh cron script</h2>
+    {{ copy_button(roa_script, "Copy script") }}
+  </div>
+  <p class="muted" data-i18n="admin.roa_refresh_hint">
+    Install as <code>/etc/cron.hourly/dn42-roa-refresh</code> (chmod +x). Fetches the dn42 ROA dump
+    hourly and hot-reloads BIRD2 so ROA validation uses fresh data.
+  </p>
+  {{ code_block(roa_script) }}
+</div>
+{% endblock %}

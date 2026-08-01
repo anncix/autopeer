@@ -95,10 +95,16 @@
   {% else %}
   <div class="kv">
     <div class="kv-row"><span class="kv-key" data-i18n="detail.wireguard">WireGuard</span><span class="kv-val mono">{{ wg_status or "-" }}</span></div>
-    <div class="kv-row"><span class="kv-key" data-i18n="detail.bgp_session">BGP session</span><span class="kv-val mono">{{ bgp_status or "-" }}</span></div>
+    <div class="kv-row">
+      <span class="kv-key" data-i18n="detail.bgp_session">BGP session</span>
+      <span class="kv-val mono"><a href="/portal/peers/{{ peer.id }}/status">{{ bgp_status or "-" }}</a></span>
+    </div>
   </div>
   {% endif %}
-  <p style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="/portal/peers/{{ peer.id }}" data-i18n="detail.refresh">Refresh</a></p>
+  <p style="margin-top:12px">
+    <a class="btn btn-ghost btn-sm" href="/portal/peers/{{ peer.id }}" data-i18n="detail.refresh">Refresh</a>
+    <a class="btn btn-secondary btn-sm" href="/portal/peers/{{ peer.id }}/status" data-i18n="detail.view_live_status">View live status</a>
+  </p>
 </div>
 
 <div class="card">

@@ -220,6 +220,49 @@ def portal_delete_peer(
     return RedirectResponse("/portal", status_code=303)
 
 
+@router.get("/portal/peers/{peer_id}/status", response_class=HTMLResponse)
+async def peer_status(
+    peer_id: str, request: Request, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """Show one of the user's own peers' full live WireGuard + BIRD status, fetched from its node.
+
+    The complete, unmodified ``birdc show protocols all`` and ``wg show`` output — the portal
+    peer-detail view condenses it to key info; this page is the "session detail" a peer owner
+    reaches by clicking the BGP session status. A dead or disabled node renders a notice instead
+    of failing the page. Ownership is enforced via ``owned_peer_with_node``.
+    """
+    user = current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    peer = owned_peer_with_node(db, user.id, peer_id)
+    if peer is None:
+        raise HTTPException(status_code=404, detail="Peer not found")
+    node = peer.node
+    protocol_name = peer_protocol_name(peer, node)
+    bird = wg = ""
+    error = None
+    try:
+        result = await NodeClient().peer_status(node, protocol_name)
+        bird = str(result.get("output", "")).strip()
+        wg = str(result.get("wireguard", "")).strip()
+    except Exception as exc:  # noqa: BLE001 - surface node errors as a notice, never a 500
+        error = f"Could not fetch live status from {node.name}: {exc}"
+    return render(
+        request,
+        "peer_status.html",
+        {
+            "peer": peer,
+            "node": node,
+            "protocol_name": protocol_name,
+            "bird": bird,
+            "wg": wg,
+            "error": error,
+        },
+        user=user,
+        active="portal",
+    )
+
+
 @router.get("/portal/peers/{peer_id}/config", response_class=HTMLResponse)
 def peer_config(peer_id: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     user = current_user(request, db)
