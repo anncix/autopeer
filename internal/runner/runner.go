@@ -474,13 +474,9 @@ func (r Runner) DeployPeer(req DeployRequest) DeployResult {
 	}
 
 	output := "deployed peer config"
-	down := r.run(r.WgQuickPath, "down", files[0])
-	if down.Output != "" {
-		output = strings.TrimSpace(output + "\nwg-quick down:\n" + down.Output)
-	}
-	up := r.run(r.WgQuickPath, "up", files[0])
-	output = strings.TrimSpace(output + "\nwg-quick up:\n" + up.Output)
-	if !up.OK {
+	wgRes := r.applyWireGuard(req.ProtocolName, files[0])
+	output = strings.TrimSpace(output + "\n" + wgRes.Output)
+	if !wgRes.OK {
 		return DeployResult{OK: false, Applied: true, Output: output, Files: files}
 	}
 	if r.DeployReloadCmd != "" {
@@ -583,13 +579,9 @@ func (r Runner) DeployIntraLink(req IntraDeployRequest) DeployResult {
 	}
 
 	output := "deployed intra-link config"
-	down := r.run(r.WgQuickPath, "down", wgFile)
-	if down.Output != "" {
-		output = strings.TrimSpace(output + "\nwg-quick down:\n" + down.Output)
-	}
-	up := r.run(r.WgQuickPath, "up", wgFile)
-	output = strings.TrimSpace(output + "\nwg-quick up:\n" + up.Output)
-	if !up.OK {
+	wgRes := r.applyWireGuard(req.ProtocolName, wgFile)
+	output = strings.TrimSpace(output + "\n" + wgRes.Output)
+	if !wgRes.OK {
 		return DeployResult{OK: false, Applied: true, Output: output, Files: files}
 	}
 	if r.DeployReloadCmd != "" {
@@ -762,4 +754,84 @@ func writeConfigFile(path string, content string) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// applyWireGuard brings a WireGuard interface up or hot-reloads it without dropping existing
+// tunnels. It mirrors peerman's differential-update approach:
+//
+//  1. If the interface does not exist yet (first deploy), run `wg-quick up <conf>`.
+//  2. If it already exists (redeploy), run `wg syncconf <iface> <stripped>` — a differential
+//     update that adds/modifies peers without down/up, so live sessions stay up. The stripped
+//     config is produced by `wg-quick strip <conf>`, which removes wg-quick-only directives
+//     (Table, PostUp, Address, MTU …) and leaves only what `wg` understands.
+//  3. If syncconf fails (e.g. ListenPort/Address changed — syncconf cannot apply those), fall
+//     back to `wg-quick down` + `wg-quick up` so the new [Interface] settings take effect.
+//
+// Returns the human-readable command output (for the deploy_output field) and OK=true on success.
+// applyWireGuard 啟動 WireGuard 介面或在不中斷現有隧道的情況下熱重載。對應 peerman 的差分更新做法:
+//
+//  1. 介面尚不存在(首次部署)→ `wg-quick up <conf>`。
+//  2. 介面已存在(重新部署)→ `wg syncconf <iface> <stripped>`,差分更新,新增/修改對等而不 down/up,
+//     現有會話保持連線。stripped 設定由 `wg-quick strip <conf>` 產生,會移除 wg-quick 專用指令
+//     (Table、PostUp、Address、MTU…),僅保留 `wg` 能理解的欄位。
+//  3. syncconf 失敗(例如 ListenPort/Address 變更——syncconf 無法套用此類欄位)時,回退為
+//     `wg-quick down` + `wg-quick up`,使新的 [Interface] 設定生效。
+//
+// 回傳人類可讀的指令輸出(寫入 deploy_output 欄位),成功時 OK=true。
+func (r Runner) applyWireGuard(protocolName, confPath string) Result {
+	// 探測介面是否已存在:`wg show <iface>` 成功代表介面已啟動。
+	exists := r.run(r.WgPath, "show", protocolName)
+
+	if !exists.OK {
+		// 介面不存在 → 首次以 wg-quick up 啟動(會建立介面、套用 [Interface] 與 [Peer])。
+		up := r.run(r.WgQuickPath, "up", confPath)
+		if !up.OK {
+			return Result{OK: false, Output: "wg-quick up:\n" + up.Output}
+		}
+		return Result{OK: true, Output: "wg-quick up (first deploy):\n" + up.Output}
+	}
+
+	// 介面已存在 → 以 wg-quick strip 取得僅含 wg 欄位的設定,再 wg syncconf 差分套用。
+	// 不使用 shell 的 <(...) 進程替換,改為兩步驟 + 臨時檔,避免依賴 shell 且可控制權限。
+	strip := r.run(r.WgQuickPath, "strip", confPath)
+	if !strip.OK {
+		// strip 失敗通常是設定檔語法錯誤;回退 down/up 亦無益,直接回報。
+		return Result{OK: false, Output: "wg-quick strip:\n" + strip.Output}
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(confPath), ".syncconf-*.tmp")
+	if err != nil {
+		return Result{OK: false, Output: "create syncconf temp file: " + err.Error()}
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	// syncconf 設定檔不含私鑰(strip 已移除),但仍以 0600 避免洩漏 peer 金鑰。
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return Result{OK: false, Output: "chmod syncconf temp file: " + err.Error()}
+	}
+	if _, err := tmp.WriteString(strip.Output + "\n"); err != nil {
+		_ = tmp.Close()
+		return Result{OK: false, Output: "write syncconf temp file: " + err.Error()}
+	}
+	if err := tmp.Close(); err != nil {
+		return Result{OK: false, Output: "close syncconf temp file: " + err.Error()}
+	}
+
+	sync := r.run(r.WgPath, "syncconf", protocolName, tmpName)
+	if sync.OK {
+		return Result{OK: true, Output: "wg syncconf (hot reload, no downtime):\n" + sync.Output}
+	}
+
+	// syncconf 失敗(常見於 ListenPort/Address 變更)→ 回退 down/up,確保新設定生效。
+	down := r.run(r.WgQuickPath, "down", confPath)
+	up := r.run(r.WgQuickPath, "up", confPath)
+	fallback := "wg syncconf failed, fell back to down/up:\n" +
+		"syncconf:\n" + sync.Output + "\n" +
+		"down:\n" + down.Output + "\n" +
+		"up:\n" + up.Output
+	if up.OK {
+		return Result{OK: true, Output: fallback}
+	}
+	return Result{OK: false, Output: fallback}
 }

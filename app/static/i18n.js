@@ -261,6 +261,16 @@ const I18N = {
     "admin.ospf_no_configs": "(no .conf files found under the node's ospf_config_dir)",
     "admin.ospf_no_dummy": "(no output / no dummy interfaces)",
 
+    // Admin - DN42 BIRD base config (ROA + filters + dnpeers template)
+    "admin.bird_base_title": "DN42 BIRD2 base config",
+    "admin.bird_base_desc": "Generates the shared BIRD2 scaffolding (ROA tables, import/export filters with ROA validation, dnpeers template) that per-peer snippets inherit from. Includes a ROA refresh cron script.",
+    "admin.bird_base_open": "Export DN42 base config",
+    "admin.bird_base_config": "DN42 BIRD2 base configuration",
+    "admin.bird_base_install_hint": "Install: save as /etc/bird/peers/00_dn42_base.conf and add include \"/etc/bird/peers/*.conf\"; to your bird.conf. Local ASN: {asn}.",
+    "admin.roa_refresh_script": "ROA refresh cron script",
+    "admin.roa_refresh_hint": "Install as /etc/cron.hourly/dn42-roa-refresh (chmod +x). Fetches the dn42 ROA dump hourly and hot-reloads BIRD2 so ROA validation uses fresh data.",
+    "admin.back_to_node": "Back to node",
+
     // Admin - Peerings
     "admin.peerings_desc": "Create, edit, redeploy, or remove any peer across all nodes.",
     "admin.add_peer": "Add peer",
@@ -625,6 +635,16 @@ const I18N = {
     "admin.ospf_no_neighbors": "（无输出 / 无 OSPF 邻居）",
     "admin.ospf_no_configs": "（在节点的 ospf_config_dir 下未找到 .conf 文件）",
     "admin.ospf_no_dummy": "（无输出 / 无 dummy 网卡）",
+
+    // Admin - DN42 BIRD 基础配置（ROA + filter + dnpeers 模板）
+    "admin.bird_base_title": "DN42 BIRD2 基础配置",
+    "admin.bird_base_desc": "生成 per-peer 片段所继承的共享 BIRD2 骨架（ROA 表、带 ROA 验证的 import/export filter、dnpeers 模板）。含 ROA 刷新 cron 脚本。",
+    "admin.bird_base_open": "导出 DN42 基础配置",
+    "admin.bird_base_config": "DN42 BIRD2 基础配置",
+    "admin.bird_base_install_hint": "安装：保存为 /etc/bird/peers/00_dn42_base.conf，并在 bird.conf 中加入 include \"/etc/bird/peers/*.conf\";。本地 ASN：{asn}。",
+    "admin.roa_refresh_script": "ROA 刷新 cron 脚本",
+    "admin.roa_refresh_hint": "安装为 /etc/cron.hourly/dn42-roa-refresh（chmod +x）。每小时抓取 dn42 ROA dump 并热重载 BIRD2，使 ROA 验证使用最新数据。",
+    "admin.back_to_node": "返回节点",
 
     // Admin - Peerings
     "admin.peerings_desc": "在所有节点上创建、编辑、重新部署或删除任意对等。",

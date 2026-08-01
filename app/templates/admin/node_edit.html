@@ -252,6 +252,15 @@
         type ptp;
     };
 };</pre>
+
+    <div class="section-title" style="margin-top:20px">
+      <h2 data-i18n="admin.bird_base_title">DN42 BIRD2 base config</h2>
+      <a href="/admin/nodes/{{ node.id }}/bird-base" class="btn btn-secondary btn-sm" data-i18n="admin.bird_base_open">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Export DN42 base config</span>
+      </a>
+    </div>
+    <p class="muted" data-i18n="admin.bird_base_desc">Generates the shared BIRD2 scaffolding (ROA tables, import/export filters with ROA validation, dnpeers template) that per-peer snippets inherit from. Includes a ROA refresh cron script.</p>
   </div>
 </section>
 
