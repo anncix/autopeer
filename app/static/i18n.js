@@ -71,6 +71,7 @@ const I18N = {
     "lg.query": "Query",
     "lg.target": "Target",
     "lg.target_placeholder": "IP, hostname, or prefix — e.g. 172.20.0.1, wiki.dn42, 1.1.1.0/24",
+    "lg.target_placeholder_bird": "BIRD protocol name — e.g. DN42_1234_6b9f",
     "lg.run_query": "Run query",
     "lg.no_nodes": "No looking-glass nodes are configured yet.",
 
@@ -144,6 +145,7 @@ const I18N = {
     "detail.wireguard": "WireGuard",
     "detail.bgp_session": "BGP session",
     "detail.refresh": "Refresh",
+    "detail.view_live_status": "View live status",
     "detail.your_submitted": "Your submitted details",
     "detail.your_endpoint": "Your endpoint",
     "detail.you_dial_us": "- (you dial us)",
@@ -392,6 +394,7 @@ const I18N = {
     "lg.query": "查询",
     "lg.target": "目标",
     "lg.target_placeholder": "IP、主机名或前缀 — 例如 172.20.0.1、wiki.dn42、1.1.1.0/24",
+    "lg.target_placeholder_bird": "BIRD 协定名称 — 例如 DN42_1234_6b9f",
     "lg.run_query": "运行查询",
     "lg.no_nodes": "尚未配置任何 Looking Glass 节点。",
 
@@ -465,6 +468,7 @@ const I18N = {
     "detail.wireguard": "WireGuard",
     "detail.bgp_session": "BGP 会话",
     "detail.refresh": "刷新",
+    "detail.view_live_status": "查看实时状态",
     "detail.your_submitted": "你提交的详情",
     "detail.your_endpoint": "你的端点",
     "detail.you_dial_us": "- (你拨入我们)",

@@ -1,7 +1,13 @@
 ﻿import ipaddress
 import re
 
-ALLOWED_QUERY_TYPES = {"ping", "trace", "mtr", "route"}
+ALLOWED_QUERY_TYPES = {"ping", "trace", "mtr", "route", "bird"}
+# A BIRD protocol name as accepted by `birdc show protocols all <name>`: same shape the node
+# service enforces (safeNameRE in internal/runner/runner.go) — a leading alnum/underscore
+# followed by alnum/underscore/hyphen, so it can never break out of the fixed birdc argv.
+# BIRD 協定名,同 node service 的 safeNameRE:首字為字母/數字/底線,其後為字母/數字/底線/連字號,
+# 故無法跳脫固定的 birdc argv。
+BIRD_PROTOCOL_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$")
 # DELIBERATE: the looking glass accepts ANY IPv4/IPv6 target, not just dn42 space. This is an
 # intentional product choice — do NOT narrow it back to dn42 ranges. Abuse of the public LG is
 # bounded by the per-IP rate limit (LG_RATE_LIMIT) and the node service concurrency cap, not by target.
@@ -58,6 +64,13 @@ def validate_target(query_type: str, target: str) -> str:
         raise ValueError("invalid target length")
     if target.startswith("-") or UNSAFE_TARGET_RE.search(target):
         raise ValueError("target contains unsupported characters")
+
+    if query_type == "bird":
+        # `birdc show protocols all <name>`: target is a BIRD protocol name, not an IP/host.
+        # Its grammar is far narrower than a hostname, so it is matched explicitly here.
+        if not BIRD_PROTOCOL_RE.match(target):
+            raise ValueError("target must be a valid BIRD protocol name")
+        return target
 
     if query_type == "route":
         try:

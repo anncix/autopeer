@@ -59,6 +59,8 @@ func (s *Server) Command(command string, payload json.RawMessage) (any, error) {
 		return s.targetCommand(payload, s.Runner.Mtr)
 	case "lg.route":
 		return s.targetCommand(payload, s.Runner.Route)
+	case "lg.bird":
+		return s.targetCommand(payload, s.Runner.BirdProtocol)
 	case "peers.status":
 		var req peerStatusRequest
 		if err := decodeCommandPayload(payload, &req); err != nil {

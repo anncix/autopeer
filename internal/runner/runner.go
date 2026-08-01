@@ -293,6 +293,21 @@ func (r Runner) Route(target string) Result {
 	return r.run(r.BirdcPath, "show", "route", "for", target)
 }
 
+// BirdProtocol runs `birdc show protocols all <name>` (the "birdc s p all xxx" command) for the
+// public looking glass. It is the same command PeerStatus issues for a single peer, exposed here
+// as a public LG query type so an operator can inspect any BIRD protocol by name. protocolName is
+// validated by safeNameRE and passed as fixed argv, never a shell.
+// BirdProtocol 執行 `birdc show protocols all <name>`(即 "birdc s p all xxx"),作為公開 LG 查詢類型,
+// 讓操作者可依名稱檢視任一 BIRD 協定。與 PeerStatus 對單一對等下達的指令相同。protocolName 經
+// safeNameRE 驗證並以固定 argv 傳入。
+func (r Runner) BirdProtocol(protocolName string) Result {
+	protocolName = strings.TrimSpace(protocolName)
+	if !safeNameRE.MatchString(protocolName) {
+		return Result{OK: false, Output: "invalid protocol name"}
+	}
+	return r.run(r.BirdcPath, "show", "protocols", "all", protocolName)
+}
+
 func (r Runner) WireGuardStatus() Result {
 	return r.run(r.WgPath, "show")
 }

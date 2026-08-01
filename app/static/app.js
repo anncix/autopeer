@@ -82,6 +82,27 @@
     return "fe80::" + suffix.toLowerCase();
   }
 
+  // Adaptive target placeholder for the looking glass: `bird` takes a BIRD protocol name, not an
+  // IP/host/prefix, so swap the placeholder (and its i18n key) when that query type is chosen.
+  function setupLgTargetPlaceholder() {
+    var select = document.getElementById("lg-query-type");
+    var input = document.getElementById("lg-target");
+    if (!select || !input) return;
+    var defaultKey = "lg.target_placeholder";
+    var birdKey = "lg.target_placeholder_bird";
+    function sync() {
+      var isBird = select.value === "bird";
+      var key = isBird ? birdKey : defaultKey;
+      input.setAttribute("data-i18n-placeholder", key);
+      var text = window.getTranslation ? window.getTranslation(key, {}) : null;
+      if (text && text !== key) {
+        input.setAttribute("placeholder", text);
+      }
+    }
+    select.addEventListener("change", sync);
+    sync();
+  }
+
   function setupAdminPeerForm() {
     var asnInput = document.getElementById("admin-peer-asn");
     var addrInput = document.getElementById("admin-peer-link-address");
@@ -179,6 +200,7 @@
     }
 
     setupAdminPeerForm();
+    setupLgTargetPlaceholder();
 
     // Flash banners: close button always; auto-dismiss non-errors after a few seconds.
     document.addEventListener("click", function (e) {
