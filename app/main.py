@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.telegram import router as telegram_router
+from app.api.v1 import router as v1_router
 from app.config import get_settings
 from app.db.init_db import create_schema
 from app.node_ws import router as node_ws_router
@@ -89,6 +90,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 
 
 app.include_router(telegram_router)
+app.include_router(v1_router)
 app.include_router(node_ws_router)
 app.include_router(pages_router)
 app.include_router(portal_router)

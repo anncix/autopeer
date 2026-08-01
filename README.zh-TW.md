@@ -2,331 +2,281 @@
 
 [English](README.md) | **繁體中文**
 
-dn42 自助對等與公開 looking glass 服務。
+**dn42 自助對等平台與公開 Looking Glass。**
 
-## 功能特色
+AutoPeer 自動化跨分散式 dn42 節點建立 BGP 對等:使用者驗證 ASN 擁有權、選擇節點、提交
+WireGuard 公鑰,即可在數分鐘內取得可直接使用的 WireGuard + BIRD 設定——無需手動設定路由器。可
+透過 Web UI、Telegram bot 或 REST API(`/api/v1`)管理一切。
 
-- dn42 自助對等（self-service autopeering）
-- 全球雙語支援（English / 中文）— 透過上方導覽列切換
-- 淺色與深色主題模式 — 透過上方導覽列切換
-- 支援多節點的公開 looking glass
-- Telegram bot 整合
+> 版本:**0.0.2** · Python 3.11+ · Go 1.21+ · MIT 授權
 
-本專案包含三個部分：
-
-- **Backend**：FastAPI 控制平面，提供 Web UI、ASN 登入、對等生命週期管理，以及 bot 專用 REST API。
-- **Node service**：在每個節點（路由器）上以 root 執行的 Go 服務，負責執行固定參數的 looking-glass 指令，並套用每個 peer 的 WireGuard 與 BIRD 設定。
-- **Telegram bot**：提供登入、建立／編輯／刪除 peer、查詢 peer 狀態與 looking-glass 指令。
-
-使用者驗證 ASN 後，可以選擇節點、提交自己的 WireGuard 公鑰（endpoint 可選），並取得建立隧道所需的我方參數。Backend 會產生 WireGuard 與 BIRD 片段，再送到對應節點上的 node service。
-
-> [!WARNING]
-> Node service 會以 root 執行，因為它需要寫入路由器設定並呼叫 `wg-quick`。任何可能進入 node service 或路由器設定的值，都應視為安全敏感輸入。
+---
 
 ## 目錄
 
-- [架構](#架構)
-- [對等流程](#對等流程)
-- [自動產生的預設值](#自動產生的預設值)
-- [快速開始](#快速開始)
-- [設定](#設定)
-- [Web UI](#web-ui)
-- [Telegram Bot](#telegram-bot)
-- [Node 與 BIRD](#node-與-bird)
-- [安全模型](#安全模型)
-- [疑難排解](#疑難排解)
-- [專案結構](#專案結構)
+- [運行](#運行)
+- [結構](#結構)
+- [API](#api)
+- [更新(變更紀錄)](#更新變更紀錄)
+- [安全](#安全)
 
-## 架構
+---
 
-```text
-Browser                 Telegram bot
-   |                         |
-   | HTTP(S)                 | HTTP + X-Backend-Secret
-   v                         v
-+------------------------------------------------+
-| Backend: FastAPI, SQLite, Web UI, bot API       |
-| - 驗證 ASN 擁有權                               |
-| - 儲存 users, nodes, peers, sessions            |
-| - 產生 WireGuard 與 BIRD peer 設定              |
-+------------------------------------------------+
-                         |
-                         | Node-initiated WSS
-                         v
-+------------------------------------------------+
-| 每個節點（路由器）上的 Node                    |
-| - 寫入 /etc/wireguard/*.conf                    |
-| - 寫入 /etc/bird/peers/*.conf                   |
-| - 執行 wg-quick, birdc, ping, traceroute, mtr   |
-+------------------------------------------------+
-```
+## 運行
 
-Backend 可以與 bot 跑在同一台主機上。Node service 通常放在各節點的路由器上，一個節點一個服務。每個 node service 會以 bearer token 主動建立 WSS 長連線到 backend；admin panel 中的公開位址則作為產生 WireGuard 設定時使用的 endpoint 主機。每個節點有自己的 dn42 身分（ASN、DN42 IPv4/IPv6），ASN 留空時退回 `LOCAL_ASN`。
+### 前置需求
 
-## 對等流程
+- Python 3.11+、Go 1.21+
+- 公開 HTTPS 網域(正式環境)或 `--allow-http`(本地測試)
+- 每台節點路由器上的 WireGuard + BIRD
 
-1. 使用者透過 Kioubit.dn42，或可選的 FindNOC Telegram 快速登入，證明自己控制某個 dn42 ASN。
-2. 使用者在 Web portal 或 Telegram bot 建立 peer：
-   - 選擇啟用中的節點；
-   - 輸入自己的 WireGuard public key；
-   - 可選輸入自己的 WireGuard endpoint（`host:port`），留空表示由對方撥入；
-   - 選擇隧道內 IP——預設 link-local，亦支援 ULA（`fd00::/8`）；
-   - 選擇 WireGuard MTU，預設 `1420`。
-3. Backend 驗證所有欄位，套用每個 ASN 在每個節點只能有一個 peer 的規則，將 peer 自動核准，並產生 WireGuard 與 BIRD 設定。我方位址由節點推導。
-4. Backend 透過 node service 的 WSS 長連線送出 `peers.deploy` 指令。
-5. Node 寫入設定檔，執行 `wg-quick down` 與 `wg-quick up`，並在設定了 reload 指令時重新載入 BIRD。
-6. 部署成功後，Web UI 與 bot 會顯示使用者設定自己端點所需的我方參數：
-   - 我方 WireGuard endpoint；
-   - 該節點的我方 WireGuard public key；
-   - 我方 tunnel IP，也就是對方 BGP neighbor；
-   - WireGuard MTU。
+### Backend 設定
 
-停用或刪除 peer 時，backend 會要求 node service 執行 `wg-quick down`，並刪除 WireGuard 與 BIRD 片段。
+```bash
+git clone https://github.com/anncix/autopeer.git
+cd autopeer
 
-## 自動產生的預設值
-
-| 值 | 規則 | `AS4242420090` 範例 |
-| --- | --- | --- |
-| WireGuard listen port | peer ASN 後 5 位 | `20090` |
-| Interface / config / BIRD protocol 名稱 | `DN42_` + peer ASN 後 4 位 | `DN42_0090` |
-| Peer link-local 位址 | `fe80::<asn-suffix>` | `fe80::90` |
-| WireGuard MTU | 使用者可修改，預設 `1420`，範圍 `1280-9000` | `1420` |
-
-Endpoint 的主機部分來自 admin panel 中註冊的節點公開位址，backend 會加上由 ASN 推導出的 WireGuard listen port。
-
-產生的 WireGuard 設定會在 `[Interface]` 內包含 MTU：
-
-```ini
-[Interface]
-PrivateKey = {{WIREGUARD_PRIVATE_KEY}}
-ListenPort = 20090
-Table = off
-MTU = 1420
-PostUp = ip addr add fe80::1/64 dev %i
-```
-
-## 快速開始
-
-### Backend 與 bot
-
-Linux / macOS：
-
-```sh
-cp .env.example .env
+cp .env.example .env          # 再編輯 .env(見下方)
 python3 -m pip install -r requirements.txt
 python3 start.py
 ```
 
-Windows PowerShell：
+`.env`(必要密鑰——除非 `ALLOW_INSECURE_DEFAULTS=1`,否則 backend 拒絕以佔位值啟動):
 
-```powershell
-Copy-Item .env.example .env
-python -m pip install -r requirements.txt
-python start.py
+```bash
+DOMAIN=your.domain.com
+LOCAL_ASN=4242420000
+SESSION_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+TELEGRAM_BACKEND_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+# 選用
+TELEGRAM_BOT_TOKEN=            # 來自 BotFather;留空即停用 bot
+FINDNOC_API_TOKEN=             # 選用的 bot FindNOC 快速登入
+ALLOW_INSECURE_DEFAULTS=0      # 僅本地測試時設為 1
 ```
 
-正式使用前請編輯 `.env`。至少應設定：
+將 Kioubit 簽章公鑰置於 `app/keys/public_key.pem`(ASN 擁有權驗證)。
 
-- `DOMAIN`
-- `LOCAL_ASN`
-- `SESSION_SECRET`
-- `TELEGRAM_BACKEND_SECRET`
-- 如果使用 bot，設定 `TELEGRAM_BOT_TOKEN`
+### Node service 設定(每台路由器)
 
-Kioubit 簽章公鑰放在 `app/keys/public_key.pem`。
+```bash
+cd cmd/node
+go build -o node .
+cd ../..
 
-常用啟動參數：
-
-| 參數 | 作用 |
-| --- | --- |
-| `--allow-http` | 本機測試模式，允許非 HTTPS `DOMAIN` 與佔位 secret。正式環境不要使用。 |
-| `--backend-only` | 只啟動 FastAPI backend。 |
-| `--bot-only` | 只啟動 Telegram bot。 |
-| `--host` / `--port` | 覆寫 backend 綁定地址與 port。 |
-
-### Node
-
-在每台路由器上建置並執行 node service：
-
-```sh
-go build -o node ./cmd/node
-cp config.example.json config.json
+cp config.example.json config.json   # 編輯 name/token/wireguard 金鑰
 ./node -config ./config.json
 ```
 
-Backend 初始沒有任何節點。請在 **Admin > Nodes** 註冊每個節點，然後把節點 name、產生的 token 與 backend WSS URL 複製到對應路由器的 `config.json`。Node 連線後會透過 WSS 回報 heartbeat/system status、整台伺服器的 WireGuard/BIRD 狀態與 `wireguard_public_key`，backend 會快取並顯示給 peer 使用。
+`config.json`:
 
-## 設定
+| 鍵 | 說明 |
+|-----|-------------|
+| `name` | 與 backend 紀錄相符的節點名稱 |
+| `token` | WSS 連線的 Bearer token(來自 admin 節點詳情 / reset-token) |
+| `backend_wss_url` | Backend WebSocket URL(`wss://host/api/nodes/ws`) |
+| `wireguard_public_key` / `wireguard_private_key` | 路由器 WG 金鑰(私鑰絕不離開節點) |
+| `bird_peer_dir` / `wireguard_peer_dir` | 產生的 BIRD 片段 / WG 設定目錄 |
+| `deploy_reload_cmd` | 部署後重載指令(如 `birdc c`) |
+| `birdc_path` / `wg_path` / `wg_quick_path` / `ping_path` / `traceroute_path` / `mtr_path` | 各執行檔路徑 |
 
-### Backend `.env`
+### 啟動選項
 
-| 變數 | 預設值 | 用途 |
-| --- | --- | --- |
-| `APP_NAME` | `AutoPeer` | Web UI 顯示名稱。 |
-| `HOST` / `PORT` | `127.0.0.1` / `8000` | Uvicorn 綁定地址。正式環境建議放在 reverse proxy 後面。 |
-| `DOMAIN` | `.env.example` 中為 `example.com` | 產生登入連結用的公開網域。沒有 scheme 時視為 `https://`。 |
-| `SESSION_SECRET` | `change-me` | Session cookie 簽章 secret。必須更換。 |
-| `DATABASE_URL` | `sqlite:///./autopeer.db` | SQLAlchemy database URL。 |
-| `LOCAL_ASN` | `.env.example` 中為 `4242420000` | 操作者 ASN。登入此 ASN 會成為 admin，也用於產生我方 link-local 預設值。 |
-| `KIOUBIT_PUBLIC_KEY_PATH` | `app/keys/public_key.pem` | Kioubit ECDSA public key。 |
-| `TELEGRAM_BOT_TOKEN` | 空 | BotFather token。只在使用 bot 時需要。 |
-| `TELEGRAM_BACKEND_SECRET` | `change-me-too` | Bot 與 backend 間的共享 secret。必須更換。 |
-| `TELEGRAM_BACKEND_URL` | `http://127.0.0.1:8000` | Bot 連到 backend 的內部 URL。 |
-| `FINDNOC_API_URL` | `https://findnoc.ox5.cc` | 可選 FindNOC API base URL。 |
-| `FINDNOC_API_TOKEN` | 空 | 設定後啟用 Telegram FindNOC 快速登入。 |
-| `ALLOW_INSECURE_DEFAULTS` | `0` | 只供本機測試時允許佔位 secret。 |
-| `LG_RATE_LIMIT` | `20` | 每個 client IP 每個時間窗的 looking-glass 請求上限。`0` 表示停用。 |
-| `LG_RATE_WINDOW_SECONDS` | `60` | Rate-limit 時間窗長度。 |
-| `FORWARDED_IP_HEADER` | 空 | 信任的 client IP header，例如 `X-Forwarded-For`，只應在可信任 proxy 後使用。 |
+| 旗標 | 說明 |
+|------|-------------|
+| `--allow-http` | 本地測試;允許非 HTTPS 的 `DOMAIN` |
+| `--backend-only` | 僅啟動 FastAPI backend |
+| `--bot-only` | 僅啟動 Telegram bot |
+| `--host` / `--port` | 覆寫 backend 綁定位置 |
 
-產生強 secret：
+### Backend 環境變數
 
-```sh
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+| 變數 | 預設 | 說明 |
+|----------|---------|-------------|
+| `APP_NAME` | `AutoPeer` | UI 顯示名稱 |
+| `HOST` / `PORT` | `127.0.0.1` / `8000` | 綁定位置 |
+| `DOMAIN` | `127.0.0.1:8000` | 公開 HTTPS 網域 |
+| `SESSION_SECRET` | *(不安全預設)* | 簽章 cookie session 密鑰 |
+| `DATABASE_URL` | `sqlite:///./autopeer.db` | 資料庫 URL |
+| `LOCAL_ASN` | *(空)* | 操作者 ASN——授予 admin 權限 |
+| `KIOUBIT_PUBLIC_KEY_PATH` | `app/keys/public_key.pem` | Kioubit ECDSA 公鑰 |
+| `TELEGRAM_BOT_TOKEN` | *(空)* | Telegram BotFather token |
+| `TELEGRAM_BACKEND_SECRET` | *(不安全預設)* | bot ↔ backend 共享密鑰 |
+| `FINDNOC_API_TOKEN` / `FINDNOC_API_URL` | *(空)* / `https://findnoc.ox5.cc` | 選用 FindNOC 登入 |
+| `LG_RATE_LIMIT` / `LG_RATE_WINDOW_SECONDS` | `20` / `60` | 公開 LG 每 IP 速率限制 |
+| `FORWARDED_IP_HEADER` | *(空)* | 受信任的客戶端 IP header(僅反向代理) |
+
+> [!WARNING]
+> Node service 以 root 執行(需寫入路由器設定並呼叫 `wg-quick`)。任何可能進入 node service
+> 或路由器設定的值,都應視為安全敏感輸入。
+
+---
+
+## 結構
+
+```
+┌─────────────────────────────────────────────────┐
+│  瀏覽器 / curl          Telegram bot             │
+│  (Web UI + /api/v1)    (/api/telegram/*)         │
+└──────────────────────┬──────────────────────────┘
+                       │
+            ┌──────────▼──────────┐
+            │  控制平面            │  FastAPI + SQLAlchemy + SQLite
+            │  (Python, app/)     │  · ASN 驗證(Kioubit/FindNOC)
+            │                     │  · Peer 生命週期 + 設定產生
+            │                     │  · REST API(/api/v1)+ Web UI
+            └──────────┬──────────┘
+                       │ WSS(token 驗證)
+            ┌──────────▼──────────┐
+            │  Node service (Go)  │  每台路由器一個
+            │  cmd/node, internal/│  · WireGuard + BIRD 部署
+            │                     │  · Looking-glass 指令執行
+            └─────────────────────┘
 ```
 
-### Node `config.json`
-
-| Key | 預設值 | 用途 |
-| --- | --- | --- |
-| `name` | 空 | 與 backend node record 相同的節點名稱；使用 WSS 時必填。 |
-| `token` | 空 | WSS 連線使用的 bearer token。 |
-| `backend_wss_url` | 必填 | Backend websocket URL，通常是 `wss://example.com/api/nodes/ws`。也接受 `http(s)` base URL 並轉成 `ws(s)`。 |
-| `max_concurrency` | `4` | 同時執行的 looking-glass 指令數。`0` 表示不限制。 |
-| `command_timeout_seconds` | `12` | 每個外部指令的 timeout。 |
-| `birdc_path` | `birdc` | `birdc` 路徑。 |
-| `ping_path` | `ping` | `ping` 路徑。 |
-| `traceroute_path` | `traceroute` | `traceroute` 路徑。 |
-| `mtr_path` | `mtr` | `mtr` 路徑。 |
-| `wg_path` | `wg` | `wg` 路徑，用於查詢即時 tunnel 狀態。 |
-| `wg_quick_path` | `wg-quick` | `wg-quick` 路徑，用於啟動或關閉 peer interface。 |
-| `wireguard_peer_dir` | `/etc/wireguard` | 產生 WireGuard 設定檔的位置。 |
-| `bird_peer_dir` | `/etc/bird/peers` | 產生 BIRD 片段的位置。 |
-| `bird_peer_group` | `bird` | 指派給 BIRD 片段的 group，讓非 root BIRD daemon 可讀取。`""` 表示停用 chown。 |
-| `deploy_reload_cmd` | 空 | deploy/remove 後執行的固定 argv 指令，例如 `birdc c`。 |
-| `wireguard_private_key` | 空 | 路由器私鑰，用於取代 `{{WIREGUARD_PRIVATE_KEY}}`。 |
-| `wireguard_public_key` | 必填 | 路由器 public key，提供給 backend 與 peer。 |
-
-Node 設定檔包含 token 與 WireGuard private key，請保持 root 擁有並設為 `0600`。
-
-## Web UI
-
-| Route | 用途 |
-| --- | --- |
-| `/` | 首頁：網路介紹、對等引導，以及各節點即時狀態。 |
-| `/lg` | 公開 looking glass（ping、traceroute、mtr、route）。 |
-| `/login` | Web Kioubit 登入。 |
-| `/portal` | 我的 Peer：總覽自己的 peer。 |
-| `/portal/new` | 建立 peer。 |
-| `/portal/peers/{id}` | Peer 詳情：id、我方參數、節點位址、即時狀態；可刪除。 |
-| `/admin` | 操作者總覽。 |
-| `/admin/nodes` | 註冊／編輯節點（ASN、DN42 位址、啟用／停用）、更新 pubkey、重設 token。 |
-| `/admin/peers` | 編輯、redeploy、停用、刪除 peer。 |
-| `/admin/users` | 管理 users 與 Telegram bindings。 |
-| `/admin/lg-log` | Looking-glass 查詢紀錄。 |
-
-New Peer 表單與 admin peer 表單皆可設定 WireGuard MTU；admin 表單還能修正位址後 redeploy。停用的節點會對公開頁面與 looking glass 隱藏。
-
-## Telegram Bot
-
-指令：
-
-```text
-/login        登入 dn42 ASN
-/logout       解除 Telegram 與目前 ASN 的綁定
-/listpeers    顯示 peer 狀態、我方參數、WireGuard 與 BIRD 細節
-/create       引導式建立 peer
-/edit         引導式編輯 peer，包含 MTU
-/delete       引導式刪除 peer
-/ping         從某個節點執行 ping
-/trace        從某個節點執行 traceroute
-/mtr          從某個節點執行 mtr
-/route        從某個節點執行 BIRD route lookup
-/cancel       中止目前引導流程
+```
+autopeer/
+├── app/
+│   ├── api/              JSON API
+│   │   ├── deps.py       require_api_user / require_api_admin(401/403 JSON)
+│   │   ├── schemas.py    Pydantic 回應模型(敏感資料白名單)
+│   │   ├── telegram.py   bot 專用 API(X-Backend-Secret)
+│   │   └── v1/           REST CRUD API(peers, nodes, admin)
+│   ├── auth/             Kioubit、FindNOC、sessions
+│   ├── bot/              Telegram bot
+│   ├── db/               SQLAlchemy 模型 + session
+│   ├── intra/            Intra-link(iBGP/OSPF 骨幹)設定 + 部署
+│   ├── lg/               Looking-glass 客戶端 + 速率限制器
+│   ├── peer/             Peer 驗證、設定產生、部署
+│   ├── templates/        Jinja2 HTML(admin/、macros.html、…)
+│   ├── static/           CSS、JS、i18n.js
+│   ├── web/              HTML 路由(pages、portal、admin、lg)
+│   ├── node_ws.py        Node WebSocket 中樞
+│   ├── version.py        版本(0.0.2)
+│   └── main.py           FastAPI app + router 接線
+├── cmd/node/             Node service 入口(Go)
+├── internal/             Node service 內部(Go)
+│   ├── api/              指令分派器(+ BGP 抖動偵測)
+│   ├── config/           JSON 設定載入器
+│   └── runner/           部署執行器
+├── config.example.json   Node service 設定範本
+├── start.py              啟動器(backend + bot)
+├── pyproject.toml        Python 專案 + ruff 設定
+└── requirements.txt
 ```
 
-`/create` 會詢問節點、endpoint（輸入 `skip` 表示不填）、public key 與 MTU。MTU 步驟輸入 `default` 會使用 `1420`。`/edit` 的 MTU 步驟輸入 `keep` 會保留目前值。peer 以編號選單挑選，而非輸入 id。
+---
 
-## Node 與 BIRD
+## API
 
-WireGuard 設定是完整的 `wg-quick` 檔案。Interface 名稱、WireGuard 檔名與 BIRD protocol 名稱相同，例如 `DN42_0090`。
+AutoPeer 暴露三個 JSON API 表面。Web UI 與 `/api/v1` 共用 session-cookie 驗證;
+`/api/telegram/*` 為機器對機器(共享密鑰);node WSS 通道為 token 驗證。
 
-部署會寫入：
+### `POST /lg` — Looking Glass(匿名)
 
-- `<wireguard_peer_dir>/<protocol_name>.conf`
-- `<bird_peer_dir>/<protocol_name>.conf`
+查詢類型為 `{ping, traceroute, mtr, bird, route}`。帶 header `X-Requested-With: fetch` 時回傳
+`{ok, output, query_type}`;否則渲染 HTML 頁面。
 
-BIRD 主設定至少需要 include peer 片段目錄：
+### `/api/v1/*` — REST CRUD API(session 驗證)
 
-```text
-include "/etc/bird/peers/*.conf";
-```
+除公開節點清單外,所有 `/api/v1` 端點皆需已驗證的 session cookie(瀏覽器登入)。驗證失敗回傳
+**401**(未登入)或 **403**(已登入但無權)為 JSON——兩個不同狀態碼讓客戶端能區分。驗證錯誤回傳
+**400**;衝突(重複名稱、含 peer 的節點)回傳 **409**。
 
-產生的 peer 片段預期存在名為 `dnpeers` 的 BGP template：
+**Peers**(`/api/v1/peers`)——使用者範圍;僅管理自己的 peer。外來 peer id 回傳 **404**(所有權
+隱藏存在性)。ASN 取自 session,故無法以他人 AS 對等。
 
-```text
-template bgp dnpeers {
-  local as 4242420000;
-  ipv4 {
-    import all;
-    export all;
-  };
-  ipv6 {
-    import all;
-    export all;
-  };
-}
-```
+| 方法 | 路徑 | 權限 | 說明 |
+|--------|------|------|-------------|
+| GET | `/api/v1/peers` | user | 列出自己的 peer |
+| POST | `/api/v1/peers` | user | 建立 peer(201) |
+| GET | `/api/v1/peers/{id}` | user | 取得自己的 peer |
+| PATCH | `/api/v1/peers/{id}` | user | 部分更新;`status=disabled` 觸發拆除,`redeploy=true` 重新推送 |
+| DELETE | `/api/v1/peers/{id}` | user | 刪除 + 盡力拆除 |
 
-正式環境請依自己的 routing policy 調整 template。
+**Nodes**(`/api/v1/nodes` 公開,`/api/v1/admin/nodes` admin)
 
-Node API 詳見 [docs/node-api.md](docs/node-api.md)。驗證流程詳見 [docs/auth-flow.md](docs/auth-flow.md)。
+| 方法 | 路徑 | 權限 | 說明 |
+|--------|------|------|-------------|
+| GET | `/api/v1/nodes` | 匿名 | 列出已啟用節點(僅公開欄位) |
+| GET | `/api/v1/nodes/{id}` | 匿名 | 節點詳情(公開欄位) |
+| GET | `/api/v1/admin/nodes` | admin | 列出全部節點(含 token + 運行時) |
+| POST | `/api/v1/admin/nodes` | admin | 建立節點(201);token 由服務端產生,回傳一次 |
+| GET | `/api/v1/admin/nodes/{id}` | admin | 節點詳情(含 token) |
+| PATCH | `/api/v1/admin/nodes/{id}` | admin | 部分更新 |
+| DELETE | `/api/v1/admin/nodes/{id}` | admin | 刪除(仍有 peer 則 409) |
+| POST | `/api/v1/admin/nodes/{id}/reset-token` | admin | 輪換 node agent token |
 
-## 安全模型
+**Admin**(`/api/v1/admin/*`)
 
-- Backend 在建立或管理 peer 前會驗證 ASN 擁有權。
-- 已驗證 ASN 等於 `LOCAL_ASN` 時才授予 admin。
-- Backend session 使用簽章 cookie。
-- Backend 預設拒絕佔位 secret，除非明確允許 insecure defaults。
-- Bot 專用 API 需要 `X-Backend-Secret`。
-- Node WSS 連線需要 `Authorization: Bearer <token>`。
-- Node token 與 bot secret 以 constant-time comparison 檢查。
-- 可進入路由器設定的使用者輸入都會先驗證。
-- Node 執行指令時使用固定 argv，不經 shell。
-- Node 寫檔限制在設定的 peer directories 內。
-- Looking glass 同時受到 backend rate limit 與 node concurrency limit 保護。
+| 方法 | 路徑 | 說明 |
+|--------|------|-------------|
+| GET | `/api/v1/admin/peers` | 列出全部 peer(含 deploy_output) |
+| GET | `/api/v1/admin/peers/{id}` | 任意 peer 詳情(含 deploy_output) |
+| GET | `/api/v1/admin/nodes/{id}/intra-links` | 列出節點上的骨幹鏈路 |
+| POST | `/api/v1/admin/nodes/{id}/intra-links` | 建立 intra-link(可雙向) |
+| DELETE | `/api/v1/admin/nodes/{id}/intra-links/{link_id}` | 刪除 intra-link |
+| GET | `/api/v1/admin/users` | 列出使用者(剝離 Telegram chat id / mnt JSON) |
 
-## 疑難排解
+### `/api/telegram/*` — Bot API(共享密鑰)
 
-| 症狀 | 可能原因與修正 |
-| --- | --- |
-| Backend 因 insecure defaults 拒絕啟動 | 設定強 `SESSION_SECRET` 與 `TELEGRAM_BACKEND_SECRET`，或本機測試時使用 `--allow-http`。 |
-| Telegram Mini App 登入失敗 | `DOMAIN` 必須是公開 HTTPS URL。 |
-| Node 一直顯示 offline | 檢查 `name`、`backend_wss_url`、TLS 連線，以及 token 是否與 **Admin > Nodes** 相同。 |
-| Node 回傳 `unauthorized` | Backend 裡的 node token 與 node `config.json` 的 token 不一致。 |
-| Peer 設定顯示 `<our-wireguard-public-key>` | 讓 node service 連上 WSS 或到 **Admin > Nodes** refresh pubkey，並確認 node 設定了 `wireguard_public_key`。 |
-| Deploy 顯示缺少 private key | 在 node config 設定 `wireguard_private_key`。 |
-| Deploy 發生 BIRD permission error | 將 `bird_peer_group` 設為 BIRD daemon 使用的 group，常見為 `bird`。 |
-| BGP session 不起來 | 檢查 link-local 位址、MTU、路由匯出政策、BIRD template，以及 `wg show <interface>`。 |
-| Looking glass 回傳 `429` | 觸發 backend rate limit 或 node concurrency limit。 |
+需 header `X-Backend-Secret` == `TELEGRAM_BACKEND_SECRET`。Peer CRUD、LG 查詢、登入
+challenge/verify、FindNOC 登入、批次狀態——見 `app/api/telegram.py`。
 
-## 專案結構
+### 敏感資料隔離
 
-```text
-app/api/            Bot 專用 REST API
-app/auth/           Kioubit, FindNOC, sessions, user binding
-app/bot/            Telegram bot
-app/db/             SQLAlchemy models 與 schema bootstrap
-app/lg/             Looking-glass client, validation, rate limit
-app/peer/           Peer validation, config rendering, deploy/remove
-app/node_ws.py      節點 WSS hub（node 連線、即時狀態）
-app/templates/      Jinja templates
-app/static/         CSS 與少量瀏覽器 JS
-cmd/node/           Node service entry point
-internal/api/       Node command dispatcher
-internal/config/    Node JSON config loader
-internal/runner/    Command execution 與 deploy 邏輯
-docs/               Node API 與驗證流程
-start.py            Backend + bot launcher
-```
+API 回應由顯式 Pydantic 白名單(`app/api/schemas.py`)構建,絕非原始 ORM 行:
 
+- `Node.token`(agent 憑證)與 `system_status_json` **僅**出現於 admin 的 `NodeAdmin` 視圖——
+  絕不出現於匿名的 `NodePublic` 清單。
+- `deploy_output`(可能含節點側主機名/路徑)在屬主的 `PeerOut` 視圖中不存在,僅 admin 的
+  `PeerAdmin` 視圖可見。
+- `UserOut` 剝離 Telegram chat id 與 ASN 身分 maintainer JSON(PII)。
+- WireGuard **私鑰絕不進入控制平面 DB**——設定使用 `{{WIREGUARD_PRIVATE_KEY}}` 佔位符,
+  由 node agent 於部署時替換。
+
+---
+
+## 更新(變更紀錄)
+
+### 0.0.2
+
+- **REST CRUD API**(`/api/v1`):peers(使用者範圍、所有權強制)、nodes(公開讀 + admin CRUD)、
+  intra-links、admin peer/使用者清單的完整增改刪查。複用與 HTML 路由相同的 service 函式,
+  驗證與部署邏輯只維護一處。
+- **權限隔離**:新增 `require_api_user` / `require_api_admin` 依賴,回傳 JSON 401/403(與 HTML
+  重定向至登入的流程區隔)。跨使用者 peer 存取回傳 404 以隱藏存在性。
+- **敏感資料隔離**:Pydantic 回應白名單自每個 API 回應剝離 `Node.token`、`deploy_output`(非
+  admin)與 Telegram PII。
+- **BGP 抖動偵測**(P2):Go node agent 輪詢 `birdc show protocols`,差分 BGP 狀態轉換
+  (up/start/down)進入有界環形緩衝,並暴露 `flap.check` / `flap.events` 指令,渲染於新的
+  admin 抖動頁面。
+- **雙向 intra-link 建立**(P2):單次建立可選擇在遠端節點一併佈建匹配的反向鏈路,經由共享的
+  `_provision_intra_link` helper。
+- **漸進增強鏈路管理**(P3):鏈路頁籤以 `fetch` 對 JSON 端點建立/重新部署/刪除,並就地刷新
+  表格——無整頁重載。
+- **版本統一**:`app/version.py`、`pyproject.toml` 對齊至 `0.0.2`。
+- 測試:Go 抖動解析器 + 環形緩衝測試;Python API/CRUD/權限/隔離測試。
+
+### 0.0.1
+
+- 初始版本:自助對等、公開 looking glass、Telegram bot、admin 儀表板、WSS 節點自動部署、
+  雙語 i18n、淺色/深色主題。
+
+---
+
+## 安全
+
+- **ASN 驗證**——建立 peer 需驗證 ASN 擁有權(Kioubit / FindNOC)
+- **Admin 存取**——僅操作者的 ASN(`LOCAL_ASN`)授予 admin 權限
+- **簽章 session**——以 `SESSION_SECRET` 簽章的 cookie session
+- **權限隔離**——API 401(未驗證)對 403(禁止);所有權檢查隱藏跨使用者資源(404)
+- **敏感資料隔離**——回應白名單;私鑰絕不離開節點
+- **速率限制**——公開 looking-glass 查詢按 IP 速率限制
+- **節點驗證**——WSS 連線帶每節點 Bearer token(可輪換)
+- **密鑰守衛**——除非明確允許本地測試,backend 拒絕以佔位密鑰啟動
+- **輸入驗證**——所有使用者輸入於設定產生前驗證
+
+## 授權
+
+MIT。
