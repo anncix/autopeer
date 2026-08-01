@@ -79,6 +79,29 @@ func (s *Server) Command(command string, payload json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return s.removePeer(req), nil
+	case "intra.ospf.neighbors":
+		return s.limitedResult(func() runner.Result { return s.Runner.OspfNeighbors() }), nil
+	case "intra.ospf.configs":
+		release, ok := s.tryAcquire()
+		if !ok {
+			return runner.OspfConfigsResult{OK: false, Error: "node is busy, try again shortly"}, nil
+		}
+		defer release()
+		return s.Runner.ReadOspfConfigs(), nil
+	case "intra.dummy":
+		return s.limitedResult(func() runner.Result { return s.Runner.DummyInterfaces() }), nil
+	case "intra.deploy":
+		var req runner.IntraDeployRequest
+		if err := decodeCommandPayload(payload, &req); err != nil {
+			return nil, err
+		}
+		return s.deployIntraLink(req), nil
+	case "intra.remove":
+		var req runner.RemoveRequest
+		if err := decodeCommandPayload(payload, &req); err != nil {
+			return nil, err
+		}
+		return s.removeIntraLink(req), nil
 	default:
 		return nil, fmt.Errorf("unknown command %q", command)
 	}
@@ -94,6 +117,18 @@ func (s *Server) removePeer(req runner.RemoveRequest) runner.DeployResult {
 	s.deployMu.Lock()
 	defer s.deployMu.Unlock()
 	return s.Runner.RemovePeer(req)
+}
+
+func (s *Server) deployIntraLink(req runner.IntraDeployRequest) runner.DeployResult {
+	s.deployMu.Lock()
+	defer s.deployMu.Unlock()
+	return s.Runner.DeployIntraLink(req)
+}
+
+func (s *Server) removeIntraLink(req runner.RemoveRequest) runner.DeployResult {
+	s.deployMu.Lock()
+	defer s.deployMu.Unlock()
+	return s.Runner.RemoveIntraLink(req)
 }
 
 func (s *Server) tryAcquire() (func(), bool) {

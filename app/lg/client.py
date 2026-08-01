@@ -31,3 +31,33 @@ class NodeClient:
             {"protocol_name": protocol_name},
             self.timeout,
         )
+
+    async def ospf_neighbors(self, node: Node) -> dict[str, Any]:
+        """Fetch OSPF neighbor sessions via ``birdc show ospf neighbor`` (the "birdc s o n" form).
+
+        BIRD2 unifies IPv4/IPv6 OSPF into one instance, so a single call surfaces both v4 and v6
+        neighbors. Output is returned verbatim for the intra-link UI to render.
+        """
+        if not node.enabled:
+            raise ValueError("Node is disabled")
+        return await request_node(node, "intra.ospf.neighbors", {}, self.timeout)
+
+    async def ospf_configs(self, node: Node) -> dict[str, Any]:
+        """Read back the OSPF area snippet files (/etc/bird/ospf/*.conf) from the node.
+
+        Returns ``{"ok": bool, "files": [{"name", "content"}], "error": str}``. Read-only on the
+        agent side; the UI displays the area/interface topology (dummy stub, wg cost/type ptp).
+        """
+        if not node.enabled:
+            raise ValueError("Node is disabled")
+        return await request_node(node, "intra.ospf.configs", {}, self.timeout)
+
+    async def dummy_interfaces(self, node: Node) -> dict[str, Any]:
+        """List dummy network interfaces via ``ip -o -d addr show type dummy``.
+
+        The dn42 dummy interface (carrying the node's own dn42 IPs) is typically referenced as a
+        stub in the OSPF area config; the UI shows it for context.
+        """
+        if not node.enabled:
+            raise ValueError("Node is disabled")
+        return await request_node(node, "intra.dummy", {}, self.timeout)

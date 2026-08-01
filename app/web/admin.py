@@ -6,6 +6,7 @@ The page is split per section (``/admin``, ``/admin/nodes``, ``/admin/peers``, `
 redirect; genuine not-found stays a 404 (styled by the global handler).
 """
 
+import asyncio
 import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -14,8 +15,19 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth.service import unbind_telegram
-from app.db.models import ASNIdentity, LGQuery, Node, PeerRequest, TelegramBinding, User
+from app.db.models import ASNIdentity, IntraLink, LGQuery, Node, PeerRequest, TelegramBinding, User, new_uuid
 from app.db.session import get_db
+from app.intra.config import (
+    generate_link_local_address,
+    generate_listen_port,
+    intra_protocol_name,
+    normalize_intra_endpoint,
+)
+from app.intra.deploy import (
+    apply_deploy_result,
+    deploy_intra_link,
+    remove_intra_link,
+)
 from app.lg.client import NodeClient
 from app.node_ws import node_runtime_context
 from app.peer.config import peer_protocol_name, render_operator_config
@@ -35,6 +47,7 @@ from app.peer.validation import (
     normalize_asn_number,
     normalize_node_host,
     normalize_optional_ip,
+    normalize_wireguard_key,
 )
 from app.web.deps import Pagination, flash, render, require_admin, settings
 
@@ -162,12 +175,47 @@ def admin_node_edit(
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found")
     runtime = node_runtime_context([node])[node.id]
+    # dn42 peers homed on this node (Peers tab).
+    peers = (
+        db.query(PeerRequest)
+        .filter(PeerRequest.node_id == node.id)
+        .order_by(PeerRequest.created_at.desc())
+        .all()
+    )
+    peer_rows = [
+        {"peer": p, "protocol_name": peer_protocol_name(p, node)} for p in peers
+    ]
+    # Internal iBGP/OSPF links deployed on this node (Links tab).
+    intra_links = (
+        db.query(IntraLink)
+        .filter(IntraLink.node_id == node.id)
+        .order_by(IntraLink.created_at.desc())
+        .all()
+    )
     return render(
         request,
         "admin/node_edit.html",
-        {"node": node, "runtime": runtime},
+        {
+            "node": node,
+            "runtime": runtime,
+            "peer_rows": peer_rows,
+            "peer_count": len(peer_rows),
+            "intra_links": intra_links,
+            "intra_link_count": len(intra_links),
+            "remote_node_choices": _intra_remote_choices(db, node.id),
+        },
         user=user,
         active="admin",
+    )
+
+
+def _intra_remote_choices(db: Session, exclude_node_id: str) -> list[Node]:
+    """Other enabled nodes that can be the remote (B) end of an intra link from this node."""
+    return (
+        db.query(Node)
+        .filter(Node.id != exclude_node_id)
+        .order_by(Node.name)
+        .all()
     )
 
 
@@ -705,6 +753,224 @@ async def admin_peer_status(
         user=user,
         active="admin",
     )
+
+
+# ------------------------------------------------------------------ intra links (GET)
+
+
+@router.get("/admin/nodes/{node_id}/ospf", response_class=HTMLResponse)
+async def admin_node_ospf(
+    node_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Fetch and display OSPF neighbors, OSPF area config files, and dummy interfaces for a node.
+
+    All three are read from the node agent and rendered verbatim. A dead/disabled node shows a
+    notice instead of failing the page. Used by the OSPF tab on the node detail page.
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    ospf_neighbors = ospf_configs = dummy = ""
+    ospf_files: list[dict[str, str]] = []
+    error = None
+    try:
+        client = NodeClient()
+        neighbors_resp, configs_resp, dummy_resp = await asyncio.gather(
+            client.ospf_neighbors(node),
+            client.ospf_configs(node),
+            client.dummy_interfaces(node),
+            return_exceptions=True,
+        )
+        ospf_neighbors = _extract_output(neighbors_resp)
+        if isinstance(configs_resp, dict):
+            ospf_files = list(configs_resp.get("files") or [])
+            if not configs_resp.get("ok"):
+                err = str(configs_resp.get("error", "")).strip()
+                if err:
+                    error = err
+        dummy = _extract_output(dummy_resp)
+    except Exception as exc:  # noqa: BLE001
+        error = f"Could not fetch OSPF status from {node.name}: {exc}"
+    return render(
+        request,
+        "admin/node_ospf.html",
+        {
+            "node": node,
+            "ospf_neighbors": ospf_neighbors,
+            "ospf_files": ospf_files,
+            "dummy": dummy,
+            "error": error,
+        },
+        user=user,
+        active="admin",
+    )
+
+
+def _extract_output(resp: object) -> str:
+    if isinstance(resp, dict):
+        return str(resp.get("output", "")).strip()
+    return ""
+
+
+# ------------------------------------------------------------------ intra links (POST)
+
+
+@router.post("/admin/nodes/{node_id}/intra-links")
+def admin_create_intra_link(
+    node_id: str,
+    request: Request,
+    remote_node_id: str = Form(""),
+    remote_public_key: str = Form(""),
+    remote_endpoint: str = Form(""),
+    label: str = Form(""),
+    deploy: bool = Form(False),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Create an intra link on a node, optionally deploying it immediately.
+
+    When a remote node is selected, its public key/endpoint auto-fill (the operator need not retype
+    them). The protocol name, listen port (414xx), and link-local address (fe80::14:xxxx/64) are
+    generated server-side. The private key never leaves the node: the config uses the
+    {{WIREGUARD_PRIVATE_KEY}} placeholder.
+    """
+    links_url = f"/admin/nodes/{node_id}/edit#links"
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    remote_node_id = remote_node_id.strip()
+    label = label.strip()[:64]
+
+    # Auto-fill from the selected remote node when one is chosen. An explicit value submitted in
+    # the form takes precedence over the remote node's stored pubkey/endpoint (lets the operator
+    # override without editing the remote node).
+    remote_node: Node | None = None
+    if remote_node_id:
+        remote_node = db.query(Node).filter(Node.id == remote_node_id).one_or_none()
+        if remote_node is None:
+            flash(request, "Selected remote node was not found.", "error")
+            return RedirectResponse(links_url, status_code=303)
+        if not remote_public_key.strip():
+            remote_public_key = remote_node.wg_public_key or ""
+        if not remote_endpoint.strip():
+            remote_endpoint = remote_node.url
+
+    # Validate the WireGuard public key (required) and endpoint (optional, bare host or host:port).
+    try:
+        remote_public_key = normalize_wireguard_key(remote_public_key)
+    except ValueError as exc:
+        flash(
+            request,
+            f"{exc} Select a remote node with a registered public key, or paste one manually.",
+            "error",
+        )
+        return RedirectResponse(links_url, status_code=303)
+    try:
+        remote_endpoint = normalize_intra_endpoint(remote_endpoint)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return RedirectResponse(links_url, status_code=303)
+
+    # Generate a stable id first so the protocol name (ibgp_<4-hex>) is derived from it rather
+    # than a throwaway UUID. Retry on the rare chance of a protocol-name collision.
+    for _ in range(3):
+        link_id = new_uuid()
+        protocol_name = intra_protocol_name(link_id)
+        if (
+            db.query(IntraLink).filter(IntraLink.protocol_name == protocol_name).one_or_none()
+            is None
+        ):
+            break
+    else:
+        flash(request, "Could not allocate a unique intra link name. Please retry.", "error")
+        return RedirectResponse(links_url, status_code=303)
+
+    link = IntraLink(
+        id=link_id,
+        node_id=node.id,
+        remote_node_id=remote_node_id or None,
+        label=label,
+        protocol_name=protocol_name,
+        remote_public_key=remote_public_key,
+        remote_endpoint=remote_endpoint,
+        listen_port=generate_listen_port(),
+        link_local_address=generate_link_local_address(),
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+
+    if deploy:
+        try:
+            result = deploy_intra_link(link, node, settings)
+            apply_deploy_result(link, result)
+            db.commit()
+            if result.get("ok"):
+                flash(request, f"Intra link {link.protocol_name} deployed.", "success")
+            else:
+                flash(request, f"Deploy failed: {result.get('output', 'unknown error')}", "error")
+        except Exception as exc:  # noqa: BLE001 - node unreachable / rejected; record and surface
+            link.deploy_status = "failed"
+            link.deploy_output = str(exc)
+            db.commit()
+            flash(request, f"Deploy failed: {exc}", "error")
+    else:
+        flash(request, f"Intra link {link.protocol_name} created (not deployed).", "success")
+    return RedirectResponse(links_url, status_code=303)
+
+
+@router.post("/admin/nodes/{node_id}/intra-links/{link_id}/deploy")
+def admin_deploy_intra_link(
+    node_id: str,
+    link_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Intra link not found")
+    node = link.node
+    try:
+        result = deploy_intra_link(link, node, settings)
+        apply_deploy_result(link, result)
+        db.commit()
+        if result.get("ok"):
+            flash(request, f"Intra link {link.protocol_name} deployed.", "success")
+        else:
+            flash(request, f"Deploy failed: {result.get('output', 'unknown error')}", "error")
+    except Exception as exc:  # noqa: BLE001 - node unreachable / rejected; record and surface
+        link.deploy_status = "failed"
+        link.deploy_output = str(exc)
+        db.commit()
+        flash(request, f"Deploy failed: {exc}", "error")
+    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
+
+
+@router.post("/admin/nodes/{node_id}/intra-links/{link_id}/delete")
+def admin_delete_intra_link(
+    node_id: str,
+    link_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Intra link not found")
+    node = link.node
+    if link.deploy_status == "deployed":
+        try:
+            remove_intra_link(link, node)
+        except Exception:  # noqa: BLE001 - best-effort teardown; still delete the record
+            pass
+    db.delete(link)
+    db.commit()
+    flash(request, f"Intra link {link.protocol_name} deleted.", "success")
+    return RedirectResponse(f"/admin/nodes/{node_id}/edit#links", status_code=303)
 
 
 # --------------------------------------------------------------------------- users (POST)
