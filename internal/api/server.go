@@ -16,12 +16,13 @@ type Server struct {
 	Runner   runner.Runner
 	sem      chan struct{}
 	deployMu sync.Mutex
+	flap     *flapState
 }
 
 // New builds the command dispatcher. When maxConcurrency > 0, looking-glass commands are
 // bounded by a semaphore so public queries cannot exhaust the router's resources.
 func New(r runner.Runner, maxConcurrency int) *Server {
-	s := &Server{Runner: r}
+	s := &Server{Runner: r, flap: newFlapState()}
 	if maxConcurrency > 0 {
 		s.sem = make(chan struct{}, maxConcurrency)
 	}
@@ -102,6 +103,21 @@ func (s *Server) Command(command string, payload json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return s.removeIntraLink(req), nil
+	case "flap.check":
+		// Poll birdc show protocols, diff against the last snapshot, record transitions. Bounded by
+		// the LG semaphore so it cannot starve other queries. Returns new events + current states.
+		// 輪詢 birdc show protocols,與上次快照差分,記錄轉換。以 LG 信號量限流,避免餓死其他查詢。
+		// 回傳新事件與當前狀態。
+		release, ok := s.tryAcquire()
+		if !ok {
+			return FlapCheckResponse{OK: false, Error: "node is busy, try again shortly"}, nil
+		}
+		defer release()
+		return s.flap.check(s.Runner), nil
+	case "flap.events":
+		// Return the full buffered flap history (no birdc call, just a memory read).
+		// 回傳完整緩衝的抖動歷史(不呼叫 birdc,僅讀記憶體)。
+		return s.flap.history(), nil
 	default:
 		return nil, fmt.Errorf("unknown command %q", command)
 	}

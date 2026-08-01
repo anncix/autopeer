@@ -8,9 +8,10 @@ redirect; genuine not-found stays a 404 (styled by the global handler).
 
 import asyncio
 import secrets
+from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -815,6 +816,86 @@ def _extract_output(resp: object) -> str:
     return ""
 
 
+@router.get("/admin/nodes/{node_id}/flap", response_class=HTMLResponse)
+async def admin_node_flap(
+    node_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Display BGP flap detection results for a node.
+
+    Triggers a ``flap.check`` (polls birdc, records transitions into the agent's ring buffer) then
+    reads ``flap.events`` for the full buffered history. Also surfaces the current BGP protocol
+    states from the check response so the UI can show live state alongside the timeline. Opening
+    this page IS the poll — there is no background poller, so the detection granularity equals how
+    often an operator visits (or a future scheduled task invokes flap.check).
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    events: list[dict[str, Any]] = []
+    states: dict[str, str] = {}
+    event_count = 0
+    new_count = 0
+    error = None
+    try:
+        client = NodeClient()
+        check_resp, hist_resp = await asyncio.gather(
+            client.flap_check(node),
+            client.flap_events(node),
+            return_exceptions=True,
+        )
+        if isinstance(check_resp, dict) and check_resp.get("ok"):
+            events = list(check_resp.get("new_events") or [])
+            new_count = len(events)
+            states = dict(check_resp.get("states") or {})
+            event_count = int(check_resp.get("event_count") or 0)
+        elif isinstance(check_resp, dict):
+            error = str(check_resp.get("error", "")).strip() or "flap.check failed"
+        # Merge: show full history (newest last) but flag the new ones from this poll.
+        # 合併:顯示完整歷史(最新在最後),但標記本次輪詢的新事件。
+        if isinstance(hist_resp, dict) and hist_resp.get("ok"):
+            hist = list(hist_resp.get("events") or [])
+            # Mark the just-observed transitions: the new_events from check_resp describe the same
+            # transitions that were appended to the agent's history on this poll, but they come back
+            # as separate JSON responses (so id() comparison would never match). Match by content
+            # (protocol + from + to + time) instead.
+            # 標記剛觀察到的轉換:check_resp 的 new_events 描述本次輪詢附加進 agent 歷史的相同轉換,
+            # 但它們經由不同 JSON 回應返回(id() 比對永遠不會相符)。改以內容
+            # (protocol + from + to + time) 比對。
+            new_keys = {
+                (e.get("protocol"), e.get("from"), e.get("to"), e.get("time"))
+                for e in events
+            }
+            for ev in hist:
+                key = (ev.get("protocol"), ev.get("from"), ev.get("to"), ev.get("time"))
+                ev["is_new"] = key in new_keys
+            events = hist
+        else:
+            for ev in events:
+                ev["is_new"] = True
+    except Exception as exc:  # noqa: BLE001
+        error = f"Could not fetch flap status from {node.name}: {exc}"
+    # Reverse for display: newest first.
+    # 反轉供顯示:最新在最前。
+    events = list(reversed(events))
+    return render(
+        request,
+        "admin/node_flap.html",
+        {
+            "node": node,
+            "events": events,
+            "states": states,
+            "event_count": event_count,
+            "new_count": new_count,
+            "error": error,
+        },
+        user=user,
+        active="admin",
+    )
+
+
 @router.get("/admin/nodes/{node_id}/bird-base", response_class=HTMLResponse)
 def admin_node_bird_base(
     node_id: str,
@@ -856,6 +937,177 @@ def admin_node_bird_base(
 # ------------------------------------------------------------------ intra links (POST)
 
 
+def _provision_intra_link(
+    db: Session,
+    settings: Any,
+    local_node: Node,
+    remote_node_id: str | None,
+    remote_public_key: str,
+    remote_endpoint: str,
+    label: str,
+    deploy: bool,
+) -> tuple[IntraLink | None, bool, str]:
+    """Create (and optionally deploy) one intra link on ``local_node``.
+
+    Returns ``(link, ok, message)``. ``link`` is None and ``ok`` False on validation failure. The
+    caller is responsible for flashing the message. This is shared between the forward and reverse
+    directions of bi-directional link creation so both sides get identical validation + deploy logic.
+    在 local_node 上建立(並可選部署)一條內網鏈路。回傳 (link, ok, message)。驗證失敗時 link 為
+    None 且 ok 為 False;訊息由呼叫者 flash。雙向鏈路建立的正向與反向共用此函式,確保兩側驗證與
+    部署邏輯一致。
+    """
+    # Validate the WireGuard public key (required) and endpoint (optional, bare host or host:port).
+    try:
+        remote_public_key = normalize_wireguard_key(remote_public_key)
+    except ValueError as exc:
+        return None, False, f"{exc} Select a remote node with a registered public key, or paste one manually."
+    try:
+        remote_endpoint = normalize_intra_endpoint(remote_endpoint)
+    except ValueError as exc:
+        return None, False, str(exc)
+
+    # Generate a stable id so the protocol name (ibgp_<4-hex>) is derived from it. Retry on the rare
+    # chance of a protocol-name collision.
+    for _ in range(3):
+        link_id = new_uuid()
+        protocol_name = intra_protocol_name(link_id)
+        if db.query(IntraLink).filter(IntraLink.protocol_name == protocol_name).one_or_none() is None:
+            break
+    else:
+        return None, False, "Could not allocate a unique intra link name. Please retry."
+
+    link = IntraLink(
+        id=link_id,
+        node_id=local_node.id,
+        remote_node_id=remote_node_id or None,
+        label=label[:64],
+        protocol_name=protocol_name,
+        remote_public_key=remote_public_key,
+        remote_endpoint=remote_endpoint,
+        listen_port=generate_listen_port(),
+        link_local_address=generate_link_local_address(),
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+
+    if not deploy:
+        return link, True, f"Intra link {link.protocol_name} created (not deployed)."
+
+    try:
+        result = deploy_intra_link(link, local_node, settings)
+        apply_deploy_result(link, result)
+        db.commit()
+        if result.get("ok"):
+            return link, True, f"Intra link {link.protocol_name} deployed."
+        return link, False, f"Deploy failed: {result.get('output', 'unknown error')}"
+    except Exception as exc:  # noqa: BLE001 - node unreachable / rejected; record and surface
+        link.deploy_status = "failed"
+        link.deploy_output = str(exc)
+        db.commit()
+        return link, False, f"Deploy failed: {exc}"
+
+
+def _serialize_intra_link(link: IntraLink) -> dict[str, Any]:
+    """Serialise an IntraLink row for the JSON list endpoint (consumed by the progressive-enhancement
+    JS that re-renders the links table without a full page reload).
+    將 IntraLink 序列化供 JSON 列表端點使用(由漸進增強 JS 消費,無需整頁重載即可重渲染鏈路表)。"""
+    return {
+        "id": link.id,
+        "protocol_name": link.protocol_name,
+        "label": link.label or "",
+        "remote_name": link.remote_node.name if link.remote_node else "",
+        "remote_endpoint": link.remote_endpoint or "",
+        "listen_port": link.listen_port,
+        "link_local_address": link.link_local_address,
+        "deploy_status": link.deploy_status,
+    }
+
+
+@router.get("/admin/nodes/{node_id}/intra-links/json")
+def admin_intra_links_json(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Return the node's intra links as JSON for the progressive-enhancement list refresher.
+
+    The links tab's table is re-rendered client-side from this after a create/deploy/delete via
+    fetch, avoiding a full page reload. Joined-loads remote_node so there is no N+1.
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    links = (
+        db.query(IntraLink)
+        .options(joinedload(IntraLink.remote_node))
+        .filter(IntraLink.node_id == node.id)
+        .order_by(IntraLink.created_at.desc())
+        .all()
+    )
+    return JSONResponse({"links": [_serialize_intra_link(l) for l in links], "count": len(links)})
+
+
+@router.post("/admin/nodes/{node_id}/intra-links/api")
+def admin_create_intra_link_api(
+    node_id: str,
+    body: dict[str, Any] = Body(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """JSON variant of the intra-link create form for progressive enhancement.
+
+    Accepts the same fields as the HTML form ({remote_node_id, remote_public_key, remote_endpoint,
+    label, deploy, reverse}) and returns {ok, message, reverse_ok?, reverse_message?} plus the
+    refreshed link count, so the client can re-fetch the list and update the count badge without a
+    page reload. Reuses _provision_intra_link so validation + deploy logic is identical to the form.
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    remote_node_id = str(body.get("remote_node_id") or "").strip()
+    remote_public_key = str(body.get("remote_public_key") or "")
+    remote_endpoint = str(body.get("remote_endpoint") or "")
+    label = str(body.get("label") or "").strip()
+    deploy = bool(body.get("deploy"))
+    reverse = bool(body.get("reverse"))
+
+    remote_node: Node | None = None
+    if remote_node_id:
+        remote_node = db.query(Node).filter(Node.id == remote_node_id).one_or_none()
+        if remote_node is None:
+            return JSONResponse({"ok": False, "message": "Selected remote node was not found."}, status_code=400)
+        if not remote_public_key.strip():
+            remote_public_key = remote_node.wg_public_key or ""
+        if not remote_endpoint.strip():
+            remote_endpoint = remote_node.url
+
+    link, ok, msg = _provision_intra_link(
+        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy
+    )
+    if link is None:
+        return JSONResponse({"ok": False, "message": msg}, status_code=400)
+
+    resp: dict[str, Any] = {"ok": ok, "message": msg}
+    if reverse and remote_node is not None:
+        if not node.wg_public_key:
+            resp["reverse_ok"] = False
+            resp["reverse_message"] = (
+                f"Reverse link skipped: {node.name} has no registered WireGuard public key."
+            )
+        else:
+            rev_label = label or f"{node.name}-{remote_node.name}"
+            _, rev_ok, rev_msg = _provision_intra_link(
+                db, settings, remote_node, node.id, node.wg_public_key, node.url, rev_label, deploy
+            )
+            resp["reverse_ok"] = rev_ok
+            resp["reverse_message"] = f"Reverse ({remote_node.name}): {rev_msg}"
+    # Fresh count for the tab badge.
+    count = db.query(func.count(IntraLink.id)).filter(IntraLink.node_id == node.id).scalar() or 0
+    resp["count"] = count
+    return JSONResponse(resp)
+
+
 @router.post("/admin/nodes/{node_id}/intra-links")
 def admin_create_intra_link(
     node_id: str,
@@ -865,6 +1117,7 @@ def admin_create_intra_link(
     remote_endpoint: str = Form(""),
     label: str = Form(""),
     deploy: bool = Form(False),
+    reverse: bool = Form(False),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -874,13 +1127,18 @@ def admin_create_intra_link(
     them). The protocol name, listen port (414xx), and link-local address (fe80::14:xxxx/64) are
     generated server-side. The private key never leaves the node: the config uses the
     {{WIREGUARD_PRIVATE_KEY}} placeholder.
+
+    When ``reverse`` is set and a remote node is selected, a matching reverse link is also created
+    on the remote node (pointing back at this node), so the two nodes form a bi-directional tunnel
+    without a second manual round-trip. The reverse link needs this node's public key; if it is
+    missing the reverse is skipped with a warning.
     """
     links_url = f"/admin/nodes/{node_id}/edit#links"
     node = db.query(Node).filter(Node.id == node_id).one_or_none()
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found")
     remote_node_id = remote_node_id.strip()
-    label = label.strip()[:64]
+    label = label.strip()
 
     # Auto-fill from the selected remote node when one is chosen. An explicit value submitted in
     # the form takes precedence over the remote node's stored pubkey/endpoint (lets the operator
@@ -896,67 +1154,43 @@ def admin_create_intra_link(
         if not remote_endpoint.strip():
             remote_endpoint = remote_node.url
 
-    # Validate the WireGuard public key (required) and endpoint (optional, bare host or host:port).
-    try:
-        remote_public_key = normalize_wireguard_key(remote_public_key)
-    except ValueError as exc:
-        flash(
-            request,
-            f"{exc} Select a remote node with a registered public key, or paste one manually.",
-            "error",
-        )
-        return RedirectResponse(links_url, status_code=303)
-    try:
-        remote_endpoint = normalize_intra_endpoint(remote_endpoint)
-    except ValueError as exc:
-        flash(request, str(exc), "error")
-        return RedirectResponse(links_url, status_code=303)
-
-    # Generate a stable id first so the protocol name (ibgp_<4-hex>) is derived from it rather
-    # than a throwaway UUID. Retry on the rare chance of a protocol-name collision.
-    for _ in range(3):
-        link_id = new_uuid()
-        protocol_name = intra_protocol_name(link_id)
-        if (
-            db.query(IntraLink).filter(IntraLink.protocol_name == protocol_name).one_or_none()
-            is None
-        ):
-            break
-    else:
-        flash(request, "Could not allocate a unique intra link name. Please retry.", "error")
-        return RedirectResponse(links_url, status_code=303)
-
-    link = IntraLink(
-        id=link_id,
-        node_id=node.id,
-        remote_node_id=remote_node_id or None,
-        label=label,
-        protocol_name=protocol_name,
-        remote_public_key=remote_public_key,
-        remote_endpoint=remote_endpoint,
-        listen_port=generate_listen_port(),
-        link_local_address=generate_link_local_address(),
+    # Forward link: on this node, peer = remote.
+    link, ok, msg = _provision_intra_link(
+        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy
     )
-    db.add(link)
-    db.commit()
-    db.refresh(link)
+    if link is None:
+        flash(request, msg, "error")
+        return RedirectResponse(links_url, status_code=303)
+    flash(request, msg, "success" if ok else "error")
 
-    if deploy:
-        try:
-            result = deploy_intra_link(link, node, settings)
-            apply_deploy_result(link, result)
-            db.commit()
-            if result.get("ok"):
-                flash(request, f"Intra link {link.protocol_name} deployed.", "success")
-            else:
-                flash(request, f"Deploy failed: {result.get('output', 'unknown error')}", "error")
-        except Exception as exc:  # noqa: BLE001 - node unreachable / rejected; record and surface
-            link.deploy_status = "failed"
-            link.deploy_output = str(exc)
-            db.commit()
-            flash(request, f"Deploy failed: {exc}", "error")
-    else:
-        flash(request, f"Intra link {link.protocol_name} created (not deployed).", "success")
+    # Reverse link: on the remote node, peer = this node. Only when a remote node was selected and
+    # the operator asked for bi-directional creation. Requires this node's public key (so the remote
+    # side knows whom to dial); skip with a warning if it is missing.
+    if reverse and remote_node is not None:
+        if not node.wg_public_key:
+            flash(
+                request,
+                f"Reverse link skipped: {node.name} has no registered WireGuard public key. "
+                "Use 'Refresh key' on the node first.",
+                "error",
+            )
+        else:
+            rev_label = label or f"{node.name}-{remote_node.name}"
+            _, rev_ok, rev_msg = _provision_intra_link(
+                db,
+                settings,
+                remote_node,
+                node.id,
+                node.wg_public_key,
+                node.url,
+                rev_label,
+                deploy,
+            )
+            flash(
+                request,
+                f"Reverse ({remote_node.name}): {rev_msg}",
+                "success" if rev_ok else "error",
+            )
     return RedirectResponse(links_url, status_code=303)
 
 

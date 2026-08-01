@@ -61,3 +61,21 @@ class NodeClient:
         if not node.enabled:
             raise ValueError("Node is disabled")
         return await request_node(node, "intra.dummy", {}, self.timeout)
+
+    async def flap_check(self, node: Node) -> dict[str, Any]:
+        """Poll ``birdc show protocols`` and diff against the agent's last snapshot.
+
+        The agent keeps an in-memory map of BGP protocol states; each call records any transitions
+        (up<->start/down, appeared, gone) into a ring buffer and returns the new events plus current
+        states. The backend calls this on demand (admin opens the flap page) — there is no
+        background poller, so detection granularity depends on how often this is invoked.
+        """
+        if not node.enabled:
+            raise ValueError("Node is disabled")
+        return await request_node(node, "flap.check", {}, self.timeout)
+
+    async def flap_events(self, node: Node) -> dict[str, Any]:
+        """Return the agent's buffered BGP flap history (no birdc call, just a memory read)."""
+        if not node.enabled:
+            raise ValueError("Node is disabled")
+        return await request_node(node, "flap.events", {}, self.timeout)

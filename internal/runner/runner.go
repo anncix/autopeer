@@ -335,6 +335,15 @@ func (r Runner) OspfNeighbors() Result {
 	return r.run(r.BirdcPath, "show", "ospf", "neighbor")
 }
 
+// BirdProtocols runs `birdc show protocols` (the overview, no "all" detail) and returns the raw
+// output. Used by the flap detector to poll BGP protocol states without the heavier per-protocol
+// detail dump. Output is returned verbatim; parsing happens in api.flapState.
+// BirdProtocols 執行 `birdc show protocols`(概覽,不含 "all" 詳情)並回傳原始輸出。供抖動偵測器
+// 輪詢 BGP 協定狀態,避免較重的 per-protocol 詳情傾印。輸出原樣回傳;解析在 api.flapState 進行。
+func (r Runner) BirdProtocols() Result {
+	return r.run(r.BirdcPath, "show", "protocols")
+}
+
 // OspfConfigFile is one OSPF area snippet read back from the node's ospf_config_dir.
 type OspfConfigFile struct {
 	Name    string `json:"name"`

@@ -762,6 +762,11 @@ tbody tr:hover td {
   background: var(--surface-2);
 }
 
+/* Highlighted row (e.g. a just-observed flap transition). */
+tbody tr.row-highlight td {
+  background: var(--link-bg-soft, #d3e5ff);
+}
+
 td.mono,
 .mono {
   font-family: var(--mono);

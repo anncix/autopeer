@@ -1,0 +1,86 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, badge %}
+{% block title %}Flap detection · {{ node.name }} · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("BGP flap detection · " ~ node.name, "Polls birdc show protocols, diffs BGP session states, and records transitions into a ring buffer. Opening this page triggers one poll — there is no background poller, so visit regularly or wire flap.check to a scheduled task.", i18n_key="admin.flap_title", i18n_subtitle_key="admin.flap_desc") }}
+<p><a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit#ospf" data-i18n="common.back">
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    <span>Back to node</span>
+  </a>
+  <a class="btn btn-ghost btn-sm" href="/admin/nodes/{{ node.id }}/flap" data-i18n="detail.refresh">↻ Refresh (re-poll)</a></p>
+
+<div class="card">
+  {% if error %}
+  <pre class="terminal bad">{{ error }}</pre>
+  {% else %}
+  {# Summary line: total events buffered + new this poll + current BGP protocol count. #}
+  <div class="kv" style="margin-bottom:16px">
+    <div class="kv-row"><span class="kv-key" data-i18n="admin.flap_total">Total events buffered</span><span class="kv-val">{{ event_count }}</span></div>
+    <div class="kv-row"><span class="kv-key" data-i18n="admin.flap_new">New this poll</span><span class="kv-val">{{ new_count }}</span></div>
+    <div class="kv-row"><span class="kv-key" data-i18n="admin.flap_bgp_sessions">BGP sessions now</span><span class="kv-val">{{ states|length }}</span></div>
+  </div>
+
+  {# Current BGP protocol states (live snapshot from this poll). #}
+  <div class="status-label" data-i18n="admin.flap_current_states">Current BGP protocol states (this poll)</div>
+  {% if states %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th data-i18n="admin.flap_protocol">Protocol</th><th data-i18n="admin.flap_state">State</th></tr></thead>
+      <tbody>
+        {% for name, state in states.items() %}
+        <tr>
+          <td class="mono">{{ name }}</td>
+          <td class="nowrap">
+            {% if state == "up" %}{{ badge("ok", "up") }}
+            {% elif state == "start" %}{{ badge("warn", "start") }}
+            {% else %}{{ badge("fail", state) }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <pre class="terminal" data-i18n="admin.flap_no_sessions">(no BGP protocols seen — node may have no peers, or birdc is not configured)</pre>
+  {% endif %}
+
+  {# Transition timeline (newest first). is_new flags the transitions just observed. #}
+  <div class="status-label" style="margin-top:20px" data-i18n="admin.flap_timeline">Transition timeline (newest first, last 200)</div>
+  {% if events %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="admin.flap_time">Time (UTC)</th>
+          <th data-i18n="admin.flap_protocol">Protocol</th>
+          <th data-i18n="admin.flap_from">From</th>
+          <th>→</th>
+          <th data-i18n="admin.flap_to">To</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in events %}
+        <tr {% if ev.is_new %}class="row-highlight"{% endif %}>
+          <td class="mono nowrap">{{ ev.time }}</td>
+          <td class="mono">{{ ev.protocol }}</td>
+          <td class="mono nowrap">{{ ev.from or "—" }}</td>
+          <td class="muted">→</td>
+          <td class="mono nowrap">
+            {% if ev.to == "up" %}{{ badge("ok", "up") }}
+            {% elif ev.to == "start" %}{{ badge("warn", "start") }}
+            {% elif ev.to == "gone" %}{{ badge("fail", "gone") }}
+            {% else %}{{ badge("warn", ev.to) }}{% endif %}
+          </td>
+          <td>{% if ev.is_new %}<span class="tab-count" style="background:var(--link-bg-soft);color:var(--link-deep)" data-i18n="admin.flap_new_badge">new</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <pre class="terminal" data-i18n="admin.flap_no_events">(no transitions recorded yet — open this page again after BGP state changes occur)</pre>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

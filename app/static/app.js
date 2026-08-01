@@ -123,6 +123,144 @@
     maybeFillPeerAddress();
   }
 
+  // ---------- intra links tab: progressive-enhancement (create via fetch, refresh list in place) ----------
+  // The links form keeps its native action= POST for no-JS fallback. When JS is on we intercept
+  // submit, POST JSON to the /api variant, then re-fetch the /json list and re-render the table
+  // body — no full page reload, the tab stays put.
+  // 鏈路表單保留原生 action= POST 供無 JS 回退。JS 啟用時攔截 submit,POST JSON 到 /api 變體,
+  // 再重新抓取 /json 列表並重渲染表格 body——不整頁重載,頁籤保持不動。
+  function deployBadge(status) {
+    var tones = { deployed: "ok", failed: "bad", deploying: "warn" };
+    var tone = tones[status] || "neutral";
+    var text = (status || "").replace(/_/g, " ");
+    return '<span class="badge badge-' + tone + '" data-i18n="status.' + status + '">' + text + "</span>";
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function renderIntraLinksTable(tbody, links) {
+    tbody.innerHTML = "";
+    if (!links.length) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td colspan="6" class="empty-state" data-i18n="admin.no_intra_links">No internal links on this node yet.</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+    links.forEach(function (l) {
+      var tr = document.createElement("tr");
+      var remote = esc(l.remote_name);
+      if (l.remote_endpoint) remote += (remote ? "<br>" : "") + '<span class="faint">' + esc(l.remote_endpoint) + "</span>";
+      tr.innerHTML =
+        '<td class="mono nowrap">' + esc(l.protocol_name) + (l.label ? '<br><span class="faint">' + esc(l.label) + "</span>" : "") + "</td>" +
+        '<td class="mono">' + remote + "</td>" +
+        '<td class="mono nowrap">' + esc(l.listen_port) + "</td>" +
+        '<td class="mono nowrap">' + esc(l.link_local_address) + "</td>" +
+        '<td class="nowrap">' + deployBadge(l.deploy_status) + "</td>" +
+        '<td class="nowrap">' +
+          '<form method="post" action="/admin/nodes/' + esc(nodeIdFromTable(tbody)) + "/intra-links/" + esc(l.id) + '/deploy" style="display:inline">' +
+            '<button type="submit" class="btn btn-secondary btn-sm" data-i18n="admin.redeploy">Redeploy</button>' +
+          "</form>" +
+          '<form method="post" action="/admin/nodes/' + esc(nodeIdFromTable(tbody)) + "/intra-links/" + esc(l.id) + '/delete" style="display:inline" data-confirm="Delete intra link ' + esc(l.protocol_name) + "? This tears down the tunnel on the node.\">" +
+            '<button type="submit" class="btn-danger btn-sm" data-i18n="admin.delete_peer">Delete</button>' +
+          "</form>" +
+        "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  // The links table sits under /admin/nodes/{node_id}/edit; we extract node_id from the table's
+  // data-node-id attribute (set in the template) rather than parsing the URL.
+  function nodeIdFromTable(tbody) {
+    return tbody.getAttribute("data-node-id") || "";
+  }
+
+  function showIntraFlash(container, message, ok) {
+    if (!container) return;
+    var div = document.createElement("div");
+    div.className = "flash flash-" + (ok ? "success" : "error");
+    div.innerHTML =
+      '<span>' + esc(message) + "</span>" +
+      '<button type="button" class="flash-close" aria-label="close">×</button>';
+    container.innerHTML = "";
+    container.appendChild(div);
+    if (ok) {
+      setTimeout(function () {
+        if (div.parentNode) div.remove();
+      }, 6000);
+    }
+  }
+
+  function setupIntraLinks() {
+    var form = document.getElementById("intra-link-form");
+    var tbody = document.getElementById("intra-links-tbody");
+    if (!form || !tbody) return;
+    var nodeId = nodeIdFromTable(tbody);
+    var flashBox = document.getElementById("intra-link-flash");
+
+    function refresh() {
+      return fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/intra-links/json", {
+        headers: { Accept: "application/json" },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          renderIntraLinksTable(tbody, data.links || []);
+          var badge = document.querySelector('[data-tab="links"] .tab-count');
+          if (badge) badge.textContent = String(data.count || 0);
+        })
+        .catch(function () { /* network error — leave the existing table in place */ });
+    }
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var btn = form.querySelector('button[type="submit"]');
+      var prev = btn ? btn.textContent : "";
+      var creating = window.getTranslation ? window.getTranslation("admin.intra_creating") : "Creating…";
+      if (btn) { btn.disabled = true; btn.textContent = creating; }
+      var payload = {
+        remote_node_id: (form.querySelector('[name="remote_node_id"]') || {}).value || "",
+        remote_public_key: (form.querySelector('[name="remote_public_key"]') || {}).value || "",
+        remote_endpoint: (form.querySelector('[name="remote_endpoint"]') || {}).value || "",
+        label: (form.querySelector('[name="label"]') || {}).value || "",
+        deploy: !!(form.querySelector('[name="deploy"]') || {}).checked,
+        reverse: !!(form.querySelector('[name="reverse"]') || {}).checked,
+      };
+      fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/intra-links/api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: "HTTP " + r.status }; }); })
+        .then(function (data) {
+          showIntraFlash(flashBox, data.message || "", data.ok);
+          if (data.reverse_message) {
+            showIntraFlash(flashBox, data.reverse_message, !!data.reverse_ok);
+          }
+          if (data.ok) {
+            // Reset only the manual fields; keep remote_node selection for convenience.
+            form.querySelector('[name="remote_public_key"]').value = "";
+            form.querySelector('[name="remote_endpoint"]').value = "";
+            form.querySelector('[name="label"]').value = "";
+            refresh();
+          }
+        })
+        .catch(function (err) {
+          showIntraFlash(flashBox, "Request failed: " + err, false);
+        })
+        .finally(function () {
+          if (btn) { btn.disabled = false; btn.textContent = prev; }
+        });
+    });
+
+    // Refresh once on load so the table reflects any out-of-band changes (e.g. reverse link created
+    // on the remote that this page doesn't know about yet).
+    refresh();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     // Copy buttons: literal `data-copy`, or the <pre> inside the button's `.codewrap`.
     document.addEventListener("click", function (e) {
@@ -201,6 +339,7 @@
 
     setupAdminPeerForm();
     setupLgTargetPlaceholder();
+    setupIntraLinks();
 
     // Flash banners: close button always; auto-dismiss non-errors after a few seconds.
     document.addEventListener("click", function (e) {
