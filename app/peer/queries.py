@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Shared peer/node query helpers used by web and Telegram routes."""
 
 from sqlalchemy.orm import Session, joinedload

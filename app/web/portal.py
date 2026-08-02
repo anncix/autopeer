@@ -1,3 +1,4 @@
+from __future__ import annotations
 """User portal: list your peers, view a peer's detail + live status, create a peer, delete a peer.
 
 Unauthenticated requests are redirected to /login (not rejected with 403), so these routes resolve

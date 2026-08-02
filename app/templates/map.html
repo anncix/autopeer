@@ -1,0 +1,1029 @@
+{% extends "base.html" %}
+{% from "macros.html" import page_header %}
+{% block title %}{{ settings.app_name }} · Network Map{% endblock %}
+{% block content %}
+<div class="map-page-wrap">
+  {{ page_header(
+      "Network Map",
+      "Real-time latency across all nodes",
+      i18n_key="admin.network_map",
+      i18n_subtitle_key="admin.network_map_desc",
+      compact=True
+  ) }}
+
+  <div class="ospf-dashboard">
+    <div class="ospf-stats-bar">
+      <div class="ospf-stat-card">
+        <span class="ospf-stat-label" data-i18n="admin.online_nodes">Online Nodes</span>
+        <span class="ospf-stat-value">{{ stats.nodes_online }}<span class="ospf-stat-total">/{{ stats.nodes_total }}</span></span>
+      </div>
+      <div class="ospf-stat-card">
+        <span class="ospf-stat-label" data-i18n="admin.avg_latency">Avg Latency</span>
+        <span class="ospf-stat-value" id="avg-latency">--<span class="ospf-stat-unit">ms</span></span>
+      </div>
+      <div class="ospf-stat-card">
+        <span class="ospf-stat-label" data-i18n="admin.max_latency">Max Latency</span>
+        <span class="ospf-stat-value" id="max-latency">--<span class="ospf-stat-unit">ms</span></span>
+      </div>
+      <div class="ospf-stat-card">
+        <span class="ospf-stat-label" data-i18n="admin.min_latency">Min Latency</span>
+        <span class="ospf-stat-value" id="min-latency">--<span class="ospf-stat-unit">ms</span></span>
+      </div>
+      <div class="ospf-stat-card ospf-stat-uptime">
+        <span class="ospf-stat-label" data-i18n="admin.uptime">Last Update</span>
+        <span class="ospf-stat-value" id="last-update">--:--:--</span>
+      </div>
+    </div>
+
+    <div class="ospf-map-wrapper ospf-svg-wrapper">
+      <div class="ospf-map-controls-top">
+        <div class="ospf-map-controls">
+          <button class="map-ctrl-btn" id="refresh-btn" title="Refresh" data-i18n-placeholder="admin.refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+          <button class="map-ctrl-btn" id="auto-refresh-btn" title="Auto-refresh" data-i18n-placeholder="admin.auto_refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-7.07-3.93l4.24-4.24m5.66-5.66l4.24-4.24M1 12h6m6 0h6m-3.93 7.07l-4.24-4.24m-5.66-5.66L4.93 4.93"/></svg>
+          </button>
+          <button class="map-ctrl-btn" id="focus-btn" title="Focus nodes" data-i18n-placeholder="admin.focus_nodes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>
+          </button>
+          <button class="map-ctrl-btn" id="jitter-btn" title="Network jitter" data-i18n-placeholder="admin.jitter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="ospf-svg-map">
+        <svg id="world-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+            <filter id="glow-strong" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="6" result="blur"/>
+              <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+            <marker id="arrow-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#26D07C"/>
+            </marker>
+            <marker id="arrow-good" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#52C41A"/>
+            </marker>
+            <marker id="arrow-warn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#F5A524"/>
+            </marker>
+            <marker id="arrow-err" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#EF4444"/>
+            </marker>
+            <radialGradient id="pulse-grad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="currentColor" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <g class="map-grid">
+            <line x1="500" y1="0" x2="500" y2="500"/>
+            <line x1="250" y1="0" x2="250" y2="500"/>
+            <line x1="750" y1="0" x2="750" y2="500"/>
+            <line x1="125" y1="0" x2="125" y2="500"/>
+            <line x1="375" y1="0" x2="375" y2="500"/>
+            <line x1="625" y1="0" x2="625" y2="500"/>
+            <line x1="875" y1="0" x2="875" y2="500"/>
+            <line x1="0" y1="250" x2="1000" y2="250"/>
+            <line x1="0" y1="125" x2="1000" y2="125"/>
+            <line x1="0" y1="375" x2="1000" y2="375"/>
+            <line x1="0" y1="62" x2="1000" y2="62"/>
+            <line x1="0" y1="188" x2="1000" y2="188"/>
+            <line x1="0" y1="312" x2="1000" y2="312"/>
+          </g>
+
+          <g class="map-continents" id="map-continents">
+            <!-- Real 1:1 continent outlines loaded from world-map.json -->
+          </g>
+
+          <g class="map-labels">
+            <text x="500" y="20" class="map-label-txt">0°</text>
+            <text x="10" y="255" class="map-label-txt">90°N</text>
+            <text x="10" y="130" class="map-label-txt">45°N</text>
+            <text x="10" y="380" class="map-label-txt">45°S</text>
+            <text x="500" y="495" class="map-label-txt" text-anchor="middle">0°</text>
+            <text x="250" y="495" class="map-label-txt" text-anchor="middle">90°W</text>
+            <text x="750" y="495" class="map-label-txt" text-anchor="middle">90°E</text>
+            <text x="125" y="495" class="map-label-txt" text-anchor="middle">135°W</text>
+            <text x="875" y="495" class="map-label-txt" text-anchor="middle">135°E</text>
+          </g>
+
+          <g id="map-links"></g>
+          <g id="map-nodes"></g>
+          <g id="map-pulses"></g>
+        </svg>
+
+        <div id="ospf-tooltip" class="ospf-tooltip" style="display:none;">
+          <div class="ospf-tooltip-header">
+            <span class="ospf-tooltip-name" id="tooltip-name"></span>
+            <span class="ospf-tooltip-status" id="tooltip-status"></span>
+          </div>
+          <div class="ospf-tooltip-row"><span>Location</span><span id="tooltip-location"></span></div>
+          <div class="ospf-tooltip-row"><span>Latency</span><span id="tooltip-latency"></span></div>
+          <div class="ospf-tooltip-chart" id="tooltip-chart"></div>
+        </div>
+      </div>
+
+      <div class="ospf-map-legend">
+        <span class="legend-title" data-i18n="admin.latency_legend">Latency (ms)</span>
+        <div class="legend-items">
+          <div class="legend-item"><span class="legend-dot legend-ok"></span><span>0-20</span></div>
+          <div class="legend-item"><span class="legend-dot legend-good"></span><span>20-50</span></div>
+          <div class="legend-item"><span class="legend-dot legend-warn"></span><span>50-100</span></div>
+          <div class="legend-item"><span class="legend-dot legend-err"></span><span>>100</span></div>
+          <div class="legend-item"><span class="legend-dot legend-offline"></span><span data-i18n="admin.offline">Offline</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  var nodesData = {{ nodes_geo|tojson|safe }};
+  var linksData = {{ intra_links|tojson|safe }};
+
+  var MAP_W = 1000, MAP_H = 500;
+  function project(lat, lng) {
+    var x = (lng + 180) / 360 * MAP_W;
+    var y = (90 - lat) / 180 * MAP_H;
+    return { x: x, y: y };
+  }
+
+  function getLatencyClass(latency) {
+    if (latency === null || latency === undefined) return "offline";
+    if (latency < 20) return "ok";
+    if (latency < 50) return "good";
+    if (latency < 100) return "warn";
+    return "err";
+  }
+
+  function getLatencyColor(_class) {
+    var colors = {
+      "ok": "#26D07C",
+      "good": "#52C41A",
+      "warn": "#F5A524",
+      "err": "#EF4444",
+      "offline": "#546175"
+    };
+    return colors[_class] || colors.offline;
+  }
+
+  function getLatencyLabel(_class) {
+    var labels = {
+      "ok": "Excellent",
+      "good": "Good",
+      "warn": "Degraded",
+      "err": "Poor",
+      "offline": "Offline"
+    };
+    return labels[_class] || "Unknown";
+  }
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  var svg = document.getElementById('world-svg');
+  var nodesGroup = document.getElementById('map-nodes');
+  var linksGroup = document.getElementById('map-links');
+  var pulsesGroup = document.getElementById('map-pulses');
+  var tooltip = document.getElementById('ospf-tooltip');
+  var latencyHistory = {};
+  var nodeElements = {};
+  var isHighlighted = null;
+  var searchQuery = '';
+
+  // Current SVG viewBox (animated when focusing on nodes / resetting to world)
+  var FULL_VIEW = { x: 0, y: 0, w: 1000, h: 500 };
+  var currentView = { x: 0, y: 0, w: 1000, h: 500 };
+  var isFocused = false;
+  var viewAnim = null;
+
+  function applyView(v) {
+    currentView = v;
+    svg.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
+  }
+
+  // Convert SVG user coordinates to screen pixels inside the svg element,
+  // accounting for preserveAspectRatio="xMidYMid meet" letterboxing.
+  function svgToScreen(svgX, svgY) {
+    var rect = svg.getBoundingClientRect();
+    var scale = Math.min(rect.width / currentView.w, rect.height / currentView.h);
+    var renderedW = currentView.w * scale;
+    var renderedH = currentView.h * scale;
+    var offsetX = (rect.width - renderedW) / 2;
+    var offsetY = (rect.height - renderedH) / 2;
+    return {
+      x: offsetX + (svgX - currentView.x) * scale,
+      y: offsetY + (svgY - currentView.y) * scale,
+      scale: scale
+    };
+  }
+
+  function animateView(target, duration) {
+    if (viewAnim) cancelAnimationFrame(viewAnim);
+    var start = { x: currentView.x, y: currentView.y, w: currentView.w, h: currentView.h };
+    var t0 = performance.now();
+    function step(now) {
+      var t = Math.min(1, (now - t0) / duration);
+      var e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      applyView({
+        x: start.x + (target.x - start.x) * e,
+        y: start.y + (target.y - start.y) * e,
+        w: start.w + (target.w - start.w) * e,
+        h: start.h + (target.h - start.h) * e
+      });
+      // Keep the detail panel glued to its node during the zoom
+      if (isHighlighted) positionDetailPanel(isHighlighted);
+      if (t < 1) viewAnim = requestAnimationFrame(step);
+      else viewAnim = null;
+    }
+    viewAnim = requestAnimationFrame(step);
+  }
+
+  function focusOnNodes() {
+    var valid = nodesData.filter(function(n) { return n.lat !== null && n.lng !== null; });
+    if (valid.length === 0) { resetView(); return; }
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    valid.forEach(function(n) {
+      var p = project(n.lat, n.lng);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+    var padX = Math.max(40, (maxX - minX) * 0.10);
+    var padY = Math.max(32, (maxY - minY) * 0.10);
+    var x = Math.max(0, minX - padX);
+    var y = Math.max(0, minY - padY);
+    var w = Math.min(1000 - x, (maxX - minX) + padX * 2);
+    var h = Math.min(500 - y, (maxY - minY) + padY * 2);
+    // Guard against degenerate (single-node) boxes
+    if (w < 220) { var cx = x + w / 2; x = Math.max(0, cx - 110); w = Math.min(1000 - x, 220); }
+    if (h < 170) { var cy = y + h / 2; y = Math.max(0, cy - 85); h = Math.min(500 - y, 170); }
+    animateView({ x: x, y: y, w: w, h: h }, 480);
+  }
+
+  function resetView() {
+    animateView(FULL_VIEW, 480);
+  }
+
+  // Secondary focus: zoom into a single node's area (wider view to show context)
+  function focusOnNode(nodeId) {
+    var ne = nodeElements[nodeId];
+    if (!ne) return;
+    var p = ne.pos;
+    var w = 280, h = 180; // wider view to show surrounding nodes
+    var x = p.x - w / 2;
+    var y = p.y - h / 2;
+    // Clamp to map bounds
+    x = Math.max(0, Math.min(1000 - w, x));
+    y = Math.max(0, Math.min(500 - h, y));
+    animateView({ x: x, y: y, w: w, h: h }, 520);
+  }
+
+  function createSVGElement(tag, attrs) {
+    var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (var key in attrs) {
+      el.setAttribute(key, attrs[key]);
+    }
+    return el;
+  }
+
+  function renderNodes() {
+    nodesGroup.innerHTML = '';
+    pulsesGroup.innerHTML = '';
+    nodeElements = {};
+
+    nodesData.forEach(function(node) {
+      if (node.lat === null || node.lng === null) return;
+
+      var pos = project(node.lat, node.lng);
+      var latency = node.online ? node.latency : null;
+      var _class = getLatencyClass(latency);
+      var color = getLatencyColor(_class);
+      latencyHistory[node.id] = node.history || [];
+
+      var size = latency === null ? 4 : (latency > 100 ? 9 : latency > 50 ? 7 : 6);
+      var circle = createSVGElement('circle', {
+        'cx': pos.x,
+        'cy': pos.y,
+        'r': size,
+        'fill': color,
+        'class': 'node-dot node-dot-' + _class,
+        'filter': 'url(#glow)'
+      });
+      circle.setAttribute('data-node-id', node.id);
+      circle.style.cursor = 'pointer';
+
+      if (node.online) {
+        var pulse = createSVGElement('circle', {
+          'cx': pos.x,
+          'cy': pos.y,
+          'r': size,
+          'fill': 'none',
+          'stroke': color,
+          'stroke-width': '1.5',
+          'class': 'node-pulse node-pulse-' + _class
+        });
+        pulse.setAttribute('data-node-id', node.id);
+        pulsesGroup.appendChild(pulse);
+      }
+
+      var label = createSVGElement('text', {
+        'x': pos.x,
+        'y': pos.y - size - 6,
+        'class': 'node-label',
+        'fill': color,
+        'text-anchor': 'middle',
+        'font-size': '9',
+        'font-weight': '600'
+      });
+      label.textContent = latency !== null ? latency + 'ms' : 'OFF';
+      label.setAttribute('data-node-id', node.id);
+      label.style.display = 'none'; // latency labels hidden for cleaner map view
+
+      var nameLabel = createSVGElement('text', {
+        'x': pos.x,
+        'y': pos.y + size + 12,
+        'class': 'node-name',
+        'fill': '#aaa',
+        'text-anchor': 'middle',
+        'font-size': '7',
+        'opacity': '0.7'
+      });
+      nameLabel.textContent = node.name;
+      nameLabel.setAttribute('data-node-id', node.id);
+      nameLabel.style.display = 'none'; // node names hidden for cleaner map view
+
+      nodesGroup.appendChild(circle);
+      nodesGroup.appendChild(label);
+      nodesGroup.appendChild(nameLabel);
+
+      nodeElements[node.id] = {
+        circle: circle,
+        label: label,
+        nameLabel: nameLabel,
+        pos: pos,
+        data: node
+      };
+
+      circle.addEventListener('mouseenter', function(e) { onNodeHover(node.id, e); });
+      circle.addEventListener('mouseleave', function() { hideTooltip(); });
+      circle.addEventListener('click', function(e) { e.stopPropagation(); onNodeClick(node.id); });
+      circle.addEventListener('mousemove', function(e) { moveTooltip(e); });
+    });
+  }
+
+  function renderLinks() {
+    linksGroup.innerHTML = '';
+
+    if (!linksData || linksData.length === 0) {
+      drawDefaultConnections();
+      return;
+    }
+
+    linksData.forEach(function(link, idx) {
+      var source = project(link.source_lat, link.source_lng);
+      var target = project(link.target_lat, link.target_lng);
+      var _class = getLatencyClass(link.latency);
+      var color = getLatencyColor(_class);
+
+      var midX = (source.x + target.x) / 2;
+      var midY = (source.y + target.y) / 2;
+      var dx = target.x - source.x;
+      var dy = target.y - source.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      // Alternate curve direction by index so parallel links fan out, reducing overlap
+      var sign = (idx % 2 === 0) ? 1 : -1;
+      var offset = dist * 0.15 * sign;
+      var ctrlX = midX - dy * offset / Math.max(dist, 1);
+      var ctrlY = midY + dx * offset / Math.max(dist, 1);
+
+      var path = createSVGElement('path', {
+        'd': 'M ' + source.x + ' ' + source.y + ' Q ' + ctrlX + ' ' + ctrlY + ' ' + target.x + ' ' + target.y,
+        'stroke': color,
+        'stroke-width': '1.0',
+        'fill': 'none',
+        'class': 'link-line link-' + _class,
+        'stroke-opacity': '0.15',
+        'data-source': link.source_id,
+        'data-target': link.target_id,
+        'data-latency': link.latency,
+        'data-label': link.label || ''
+      });
+      path.style.cursor = 'pointer';
+      path.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showLinkTooltip(e, link);
+      });
+
+      linksGroup.appendChild(path);
+    });
+  }
+
+  function highlightNodeLinks(nodeId) {
+    var paths = linksGroup.querySelectorAll('.link-line');
+    paths.forEach(function(p) {
+      var src = p.getAttribute('data-source');
+      var tgt = p.getAttribute('data-target');
+      if (src == nodeId || tgt == nodeId) {
+        p.setAttribute('stroke-opacity', '0.9');
+        p.setAttribute('stroke-width', '2.0');
+        p.style.filter = 'url(#glow)';
+      } else {
+        p.setAttribute('stroke-opacity', '0.12');
+        p.setAttribute('stroke-width', '0.6');
+        p.style.filter = 'none';
+      }
+    });
+  }
+
+  function resetLinkHighlight() {
+    var paths = linksGroup.querySelectorAll('.link-line');
+    paths.forEach(function(p) {
+      p.setAttribute('stroke-opacity', '0.15');
+      p.setAttribute('stroke-width', '1.0');
+      p.style.filter = 'none';
+    });
+  }
+
+  // ── Link click tooltip: shows A↔B latency when clicking a link line ──
+  var linkTooltip = null;
+
+  function showLinkTooltip(e, link) {
+    if (!linkTooltip) {
+      linkTooltip = document.createElement('div');
+      linkTooltip.className = 'link-tooltip';
+      linkTooltip.addEventListener('click', function(ev) { ev.stopPropagation(); });
+      var wrapper = document.querySelector('.ospf-svg-wrapper');
+      if (wrapper) wrapper.appendChild(linkTooltip);
+    }
+    var srcNode = nodesData.find(function(n) { return n.id === link.source_id; });
+    var tgtNode = nodesData.find(function(n) { return n.id === link.target_id; });
+    var srcName = srcNode ? srcNode.name : link.source_id;
+    var tgtName = tgtNode ? tgtNode.name : link.target_id;
+    var _class = getLatencyClass(link.latency);
+    var color = getLatencyColor(_class);
+    linkTooltip.innerHTML =
+      '<div class="link-tooltip-header">' + escapeHtml(srcName) + ' &harr; ' + escapeHtml(tgtName) + '</div>' +
+      '<div class="link-tooltip-row"><span>Latency</span><span style="color:' + color + ';font-weight:600">' + link.latency + ' ms</span></div>' +
+      '<div class="link-tooltip-row"><span>Quality</span><span>' + getLatencyLabel(_class) + '</span></div>';
+    linkTooltip.style.display = 'block';
+    // Position near the click point, relative to the map wrapper
+    var wrapper = linkTooltip.parentElement;
+    if (wrapper) {
+      var wrapperRect = wrapper.getBoundingClientRect();
+      var x = e.clientX - wrapperRect.left;
+      var y = e.clientY - wrapperRect.top;
+      linkTooltip.style.left = Math.min(Math.max(x + 12, 4), wrapperRect.width - 210) + 'px';
+      linkTooltip.style.top = Math.max(y - 10, 5) + 'px';
+    }
+  }
+
+  function hideLinkTooltip() {
+    if (linkTooltip) linkTooltip.style.display = 'none';
+  }
+
+  function drawDefaultConnections() {
+    var onlineNodes = nodesData.filter(function(n) { return n.online && n.lat && n.lng; });
+    for (var i = 0; i < onlineNodes.length; i++) {
+      for (var j = i + 1; j < onlineNodes.length; j++) {
+        var s = project(onlineNodes[i].lat, onlineNodes[i].lng);
+        var t = project(onlineNodes[j].lat, onlineNodes[j].lng);
+        var midX = (s.x + t.x) / 2;
+        var midY = (s.y + t.y) / 2;
+        var dx = t.x - s.x, dy = t.y - s.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 200) {
+          var offset = dist * 0.2;
+          var ctrlX = midX - dy * offset / Math.max(dist, 1);
+          var ctrlY = midY + dx * offset / Math.max(dist, 1);
+          var path = createSVGElement('path', {
+            'd': 'M ' + s.x + ' ' + s.y + ' Q ' + ctrlX + ' ' + ctrlY + ' ' + t.x + ' ' + t.y,
+            'stroke': '#3a7bd5',
+            'stroke-width': '0.9',
+            'fill': 'none',
+            'stroke-opacity': '0.45',
+            'stroke-dasharray': '4 4'
+          });
+          linksGroup.appendChild(path);
+        }
+      }
+    }
+  }
+
+  function onNodeHover(nodeId, e) {
+    if (isHighlighted) return; // suppress hover tooltip while the detail panel is open
+    var ne = nodeElements[nodeId];
+    if (!ne) return;
+    var node = ne.data;
+    var latency = node.online ? node.latency : null;
+    var _class = getLatencyClass(latency);
+    var color = getLatencyColor(_class);
+    var history = latencyHistory[nodeId] || [];
+
+    document.getElementById('tooltip-name').textContent = node.name;
+    var statusEl = document.getElementById('tooltip-status');
+    statusEl.textContent = getLatencyLabel(_class);
+    statusEl.style.color = color;
+    document.getElementById('tooltip-location').textContent = node.location || '—';
+    var latEl = document.getElementById('tooltip-latency');
+    latEl.textContent = latency !== null ? latency + ' ms' : 'Offline';
+    latEl.style.color = color;
+
+    var chartContainer = document.getElementById('tooltip-chart');
+    chartContainer.innerHTML = renderMiniBarChart(history, latency);
+
+    tooltip.style.display = 'block';
+    moveTooltip(e);
+  }
+
+  function moveTooltip(e) {
+    var rect = svg.getBoundingClientRect();
+    var x, y;
+    if (e && e.clientX) {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    } else {
+      var ne = nodeElements[isHighlighted];
+      if (ne) {
+        var p = svgToScreen(ne.pos.x, ne.pos.y);
+        x = p.x;
+        y = p.y;
+      } else return;
+    }
+    var tw = tooltip.offsetWidth || 200;
+    var th = tooltip.offsetHeight || 150;
+    var tx = x + 15;
+    var ty = y - th / 2;
+    if (tx + tw > rect.width) tx = x - tw - 15;
+    if (ty < 0) ty = 5;
+    if (ty + th > rect.height) ty = rect.height - th - 5;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top = ty + 'px';
+  }
+
+  function hideTooltip() {
+    tooltip.style.display = 'none';
+  }
+
+  function deselectNode() {
+    if (detailPanel) detailPanel.style.display = 'none';
+    hideLinkTooltip();
+    resetLinkHighlight();
+    isHighlighted = null;
+    // Return to first-level focus (all nodes), not full world
+    if (isFocused) focusOnNodes();
+  }
+
+  function onNodeClick(nodeId) {
+    if (isHighlighted === nodeId) {
+      deselectNode();
+      return;
+    }
+    isHighlighted = nodeId;
+    hideTooltip();
+
+    var ne = nodeElements[nodeId];
+    if (!ne) return;
+    var node = ne.data;
+    var latency = node.online ? node.latency : null;
+    var _class = getLatencyClass(latency);
+    var color = getLatencyColor(_class);
+    var history = latencyHistory[nodeId] || [];
+
+    highlightNodeLinks(nodeId);
+    showNodeDetail(node, latency, _class, color, history);
+    focusOnNode(nodeId); // secondary focus: zoom into this node's area
+  }
+
+  function renderMiniBarChart(history, currentLatency) {
+    if (!history || history.length === 0) return '';
+    var barW = 10, gap = 3, h = 36;
+    var maxV = Math.max.apply(null, history.concat([currentLatency || 0]));
+    var minV = Math.min.apply(null, history.concat([currentLatency || 0]));
+    var range = maxV - minV || 1;
+    var w = history.length * (barW + gap) - gap;
+
+    var svgStr = '<svg width="' + w + '" height="' + h + '" class="mini-chart">';
+    for (var i = 0; i < history.length; i++) {
+      var val = history[i];
+      var hClass = getLatencyClass(val);
+      var barH = Math.max(3, ((val - minV) / range) * (h - 6));
+      var x = i * (barW + gap);
+      var y = h - barH - 2;
+      svgStr += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="2" class="mini-bar mini-bar-' + hClass + '"/>';
+    }
+    svgStr += '</svg>';
+    return svgStr;
+  }
+
+  // ─── Node detail panel (created once, updated in place) ───
+  var detailPanel = null;
+
+  function ensureDetailPanel() {
+    if (detailPanel) return detailPanel;
+    detailPanel = document.createElement('div');
+    detailPanel.className = 'node-detail-panel';
+    detailPanel.style.display = 'none';
+    detailPanel.innerHTML =
+      '<div class="detail-header">' +
+        '<span class="detail-name"></span>' +
+        '<span class="detail-header-right">' +
+          '<span class="detail-status"></span>' +
+          '<button class="detail-close" type="button" aria-label="Close">&times;</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="detail-body">' +
+        '<div class="detail-row"><span class="detail-label">Location</span><span class="detail-value detail-loc"></span></div>' +
+        '<div class="detail-row"><span class="detail-label">Avg Latency</span><span class="detail-value detail-lat"></span></div>' +
+      '</div>' +
+      '<div class="peer-latency-section">' +
+        '<div class="peer-latency-title"></div>' +
+        '<div class="peer-latency-list"></div>' +
+      '</div>';
+    document.querySelector('.ospf-svg-wrapper').appendChild(detailPanel);
+    // Close button — listener attached once and survives auto-refresh
+    detailPanel.querySelector('.detail-close').addEventListener('click', function(e) {
+      e.stopPropagation();
+      deselectNode();
+    });
+    // Clicks inside the panel must not bubble to the document-level close handler
+    detailPanel.addEventListener('click', function(e) { e.stopPropagation(); });
+    return detailPanel;
+  }
+
+  function buildPeerList(nodeId) {
+    var peerList = [];
+    if (linksData && linksData.length) {
+      linksData.forEach(function(link) {
+        var peerId, peerLatency;
+        if (link.source_id === nodeId) { peerId = link.target_id; peerLatency = link.latency; }
+        else if (link.target_id === nodeId) { peerId = link.source_id; peerLatency = link.latency; }
+        else return;
+        var peerNode = nodesData.find(function(n) { return n.id === peerId; });
+        if (peerNode) {
+          var pClass = getLatencyClass(peerLatency);
+          peerList.push({
+            name: peerNode.name, location: peerNode.location || '',
+            latency: peerLatency, _class: pClass, color: getLatencyColor(pClass)
+          });
+        }
+      });
+    }
+    peerList.sort(function(a, b) { return a.latency - b.latency; });
+    return peerList;
+  }
+
+  function renderPeerList(listEl, peerList) {
+    listEl.innerHTML = peerList.map(function(p) {
+      return '<div class="peer-latency-row">' +
+        '<span class="peer-name">' + escapeHtml(p.name) + '</span>' +
+        '<span class="peer-loc">' + escapeHtml(p.location) + '</span>' +
+        '<span class="peer-latency" style="color:' + p.color + '">' + p.latency + 'ms</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function positionDetailPanel(nodeId) {
+    var ne = nodeElements[nodeId];
+    if (!ne || !detailPanel) return;
+    var svgRect = svg.getBoundingClientRect();
+    var mapRect = detailPanel.parentElement.getBoundingClientRect();
+    var p = svgToScreen(ne.pos.x, ne.pos.y);
+    var left = (svgRect.left - mapRect.left) + p.x + 20;
+    var top = (svgRect.top - mapRect.top) + p.y - 50;
+    if (left + detailPanel.offsetWidth > mapRect.width - 10) {
+      left = (svgRect.left - mapRect.left) + p.x - detailPanel.offsetWidth - 20;
+    }
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
+    if (top + detailPanel.offsetHeight > mapRect.height - 10) {
+      top = Math.max(10, mapRect.height - detailPanel.offsetHeight - 10);
+    }
+    detailPanel.style.left = left + 'px';
+    detailPanel.style.top = top + 'px';
+  }
+
+  function showNodeDetail(node, latency, _class, color, history) {
+    ensureDetailPanel();
+    detailPanel.querySelector('.detail-name').textContent = node.name;
+    var statusEl = detailPanel.querySelector('.detail-status');
+    statusEl.textContent = getLatencyLabel(_class);
+    statusEl.className = 'detail-status status-' + _class;
+    detailPanel.querySelector('.detail-loc').textContent = node.location || '—';
+    var latEl = detailPanel.querySelector('.detail-lat');
+    latEl.textContent = latency !== null ? latency + ' ms' : 'Offline';
+    latEl.style.color = color;
+    var peerList = buildPeerList(node.id);
+    detailPanel.querySelector('.peer-latency-title').textContent =
+      'Latency to other nodes (' + peerList.length + ')';
+    renderPeerList(detailPanel.querySelector('.peer-latency-list'), peerList);
+    detailPanel.style.display = 'block';
+    positionDetailPanel(node.id);
+  }
+
+  function renderFullBarChart(history, currentLatency) {
+    if (!history || history.length === 0) return '';
+    var barW = 28, gap = 8, h = 100, pad = 10;
+    var maxV = Math.max.apply(null, history.concat([currentLatency || 0]));
+    var minV = Math.min.apply(null, history.concat([currentLatency || 0]));
+    var range = maxV - minV || 1;
+    var w = history.length * (barW + gap) - gap;
+    var usableH = h - pad * 2;
+
+    var svgStr = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">';
+    for (var gi = 0; gi <= 3; gi++) {
+      var y = pad + (usableH * gi / 3);
+      svgStr += '<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y + '" class="full-grid"/>';
+    }
+    for (var i = 0; i < history.length; i++) {
+      var val = history[i];
+      var hClass = getLatencyClass(val);
+      var barH = Math.max(5, ((val - minV) / range) * usableH);
+      var x = i * (barW + gap);
+      var y = h - pad - barH;
+      var isCurrent = (i === history.length - 1);
+      svgStr += '<g>';
+      svgStr += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="4" ry="4" class="full-bar full-bar-' + hClass + (isCurrent ? ' full-bar-current' : '') + '"/>';
+      svgStr += '<text x="' + (x + barW / 2) + '" y="' + (y - 4) + '" class="full-bar-value" text-anchor="middle">' + val + '</text>';
+      svgStr += '<text x="' + (x + barW / 2) + '" y="' + (h - 2) + '" class="full-bar-label" text-anchor="middle">#' + (i + 1) + '</text>';
+      svgStr += '</g>';
+    }
+    svgStr += '</svg>';
+    return svgStr;
+  }
+
+  function updateLatency() {
+    var now = new Date();
+    var lastUpdateEl = document.getElementById('last-update');
+    if (lastUpdateEl) {
+      lastUpdateEl.textContent =
+        String(now.getHours()).padStart(2, '0') + ':' +
+        String(now.getMinutes()).padStart(2, '0') + ':' +
+        String(now.getSeconds()).padStart(2, '0');
+    }
+
+    var latencies = [];
+    nodesData.forEach(function(node) {
+      if (!node.online || node.lat === null) return;
+      var history = latencyHistory[node.id] || [];
+      var lastLatency = history.length > 0 ? history[history.length - 1] : (node.latency || 30);
+      var delta = (Math.random() - 0.4) * 8;
+      var currentLatency = Math.max(1, Math.round(lastLatency + delta));
+      history.push(currentLatency);
+      if (history.length > 5) history.shift();
+      latencyHistory[node.id] = history;
+
+      if (nodeElements[node.id]) {
+        var ne = nodeElements[node.id];
+        var _class = getLatencyClass(currentLatency);
+        var color = getLatencyColor(_class);
+        var size = currentLatency > 100 ? 9 : currentLatency > 50 ? 7 : 6;
+        ne.circle.setAttribute('r', size);
+        ne.circle.setAttribute('fill', color);
+        ne.circle.setAttribute('class', 'node-dot node-dot-' + _class);
+        ne.label.setAttribute('y', ne.pos.y - size - 6);
+        ne.label.setAttribute('fill', color);
+        ne.label.textContent = currentLatency + 'ms';
+        var pulseEl = pulsesGroup.querySelector('[data-node-id="' + node.id + '"]');
+        if (pulseEl) {
+          pulseEl.setAttribute('stroke', color);
+          pulseEl.setAttribute('class', 'node-pulse node-pulse-' + _class);
+        }
+      }
+
+      latencies.push(currentLatency);
+    });
+
+    updateStats(latencies);
+
+    // Update detail panel in place (no rebuild → preserves scroll position & close button)
+    if (isHighlighted && detailPanel && detailPanel.style.display !== 'none') {
+      var ne = nodeElements[isHighlighted];
+      if (ne) {
+        var node = ne.data;
+        var lat = node.online ? (latencyHistory[node.id] || []).slice(-1)[0] : null;
+        var cls = getLatencyClass(lat);
+        var clr = getLatencyColor(cls);
+        var statusEl = detailPanel.querySelector('.detail-status');
+        statusEl.textContent = getLatencyLabel(cls);
+        statusEl.className = 'detail-status status-' + cls;
+        var latEl = detailPanel.querySelector('.detail-lat');
+        latEl.textContent = lat !== null ? lat + ' ms' : 'Offline';
+        latEl.style.color = clr;
+      }
+    }
+  }
+
+  function updateStats(latencies) {
+    if (!latencies || latencies.length === 0) {
+      document.getElementById('avg-latency').innerHTML = '--<span class="ospf-stat-unit">ms</span>';
+      document.getElementById('max-latency').innerHTML = '--<span class="ospf-stat-unit">ms</span>';
+      document.getElementById('min-latency').innerHTML = '--<span class="ospf-stat-unit">ms</span>';
+      return;
+    }
+    var sum = 0, max = 0, min = Infinity;
+    latencies.forEach(function(l) {
+      sum += l;
+      if (l > max) max = l;
+      if (l < min) min = l;
+    });
+    document.getElementById('avg-latency').innerHTML = Math.round(sum / latencies.length) + '<span class="ospf-stat-unit">ms</span>';
+    document.getElementById('max-latency').innerHTML = max + '<span class="ospf-stat-unit">ms</span>';
+    document.getElementById('min-latency').innerHTML = min + '<span class="ospf-stat-unit">ms</span>';
+  }
+
+  var autoRefresh = true;
+  var refreshInterval;
+
+  document.getElementById('refresh-btn').addEventListener('click', updateLatency);
+  var autoBtn = document.getElementById('auto-refresh-btn');
+  autoBtn.classList.add('active');
+  autoBtn.addEventListener('click', function() {
+    autoRefresh = !autoRefresh;
+    autoBtn.classList.toggle('active');
+    if (autoRefresh) startAutoRefresh();
+    else stopAutoRefresh();
+  });
+
+  // Focus / reset view toggle — zooms into the region containing nodes, or back to full world
+  var focusBtn = document.getElementById('focus-btn');
+  function setFocusState(focused) {
+    isFocused = focused;
+    focusBtn.classList.toggle('active', focused);
+    focusBtn.title = focused ? 'Reset view' : 'Focus nodes';
+    focusBtn.setAttribute('data-i18n-placeholder', focused ? 'admin.reset_view' : 'admin.focus_nodes');
+    if (window.applyTranslations) applyTranslations();
+  }
+  focusBtn.addEventListener('click', function() {
+    if (isFocused) { resetView(); setFocusState(false); }
+    else { focusOnNodes(); setFocusState(true); }
+  });
+
+  var jitterBtn = document.getElementById('jitter-btn');
+  jitterBtn.addEventListener('click', function() {
+    if (jitterActive) stopJitter();
+    else startJitter();
+  });
+
+  // Close the detail panel / link tooltip when clicking outside
+  document.addEventListener('click', function(e) {
+    // Hide link tooltip on any outside click
+    if (linkTooltip && linkTooltip.style.display !== 'none' && !linkTooltip.contains(e.target)) {
+      hideLinkTooltip();
+    }
+    if (!isHighlighted) return;
+    if (detailPanel && detailPanel.contains(e.target)) return;
+    if (e.target.closest('[data-node-id]')) return;   // let onNodeClick handle node clicks
+    if (e.target.closest('.link-line')) return;        // let link click handler work
+    if (e.target.closest('.ospf-map-controls')) return; // don't close when using map controls
+    deselectNode();
+  });
+  // Escape key also closes the panel / tooltip
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if (linkTooltip && linkTooltip.style.display !== 'none') { hideLinkTooltip(); return; }
+      if (isHighlighted) deselectNode();
+    }
+  });
+
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    refreshInterval = setInterval(updateLatency, 5000);
+  }
+  function stopAutoRefresh() {
+    if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  }
+
+  // ── Network jitter simulation: randomly change link latencies + update colors ──
+  var jitterInterval = null;
+  var jitterActive = false;
+
+  function startJitter() {
+    if (jitterInterval) return;
+    jitterActive = true;
+    var jitterBtn = document.getElementById('jitter-btn');
+    if (jitterBtn) jitterBtn.classList.add('active');
+    jitterInterval = setInterval(applyJitter, 2000);
+    applyJitter();
+  }
+
+  function stopJitter() {
+    if (jitterInterval) { clearInterval(jitterInterval); jitterInterval = null; }
+    jitterActive = false;
+    var jitterBtn = document.getElementById('jitter-btn');
+    if (jitterBtn) jitterBtn.classList.remove('active');
+  }
+
+  function applyJitter() {
+    if (!linksData || linksData.length === 0) return;
+    var paths = linksGroup.querySelectorAll('.link-line');
+    if (paths.length === 0) return;
+    // Pick 5-10 random links to jitter
+    var count = 5 + Math.floor(Math.random() * 6);
+    var changed = [];
+    for (var i = 0; i < count; i++) {
+      var idx = Math.floor(Math.random() * linksData.length);
+      var link = linksData[idx];
+      // Change latency by random factor (0.3x to 2.5x)
+      var factor = 0.3 + Math.random() * 2.2;
+      var newLatency = Math.max(1, Math.round(link.latency * factor * 10) / 10);
+      link.latency = newLatency;
+      // Update the SVG path color
+      var path = paths[idx];
+      if (path) {
+        var _class = getLatencyClass(newLatency);
+        var color = getLatencyColor(_class);
+        path.setAttribute('stroke', color);
+        path.setAttribute('data-latency', newLatency);
+        path.setAttribute('class', 'link-line link-' + _class);
+        // Brief flash to highlight the change
+        path.setAttribute('stroke-width', '2.5');
+        path.setAttribute('stroke-opacity', '0.85');
+        changed.push(path);
+      }
+    }
+    // Restore normal opacity after 800ms (keep new color)
+    setTimeout(function() {
+      changed.forEach(function(p) {
+        if (!isHighlighted) {
+          p.setAttribute('stroke-width', '1.0');
+          p.setAttribute('stroke-opacity', '0.15');
+        }
+      });
+    }, 800);
+  }
+
+  function animatePulses() {
+    var pulses = pulsesGroup.querySelectorAll('.node-pulse');
+    pulses.forEach(function(pulse) {
+      var r = parseFloat(pulse.getAttribute('r'));
+      if (!pulse._animating) {
+        pulse._animating = true;
+        pulse._r = r;
+        pulse._opacity = 0.6;
+      }
+      pulse._r += 0.4;
+      pulse._opacity -= 0.015;
+      pulse.setAttribute('r', pulse._r);
+      pulse.setAttribute('stroke-opacity', Math.max(0, pulse._opacity));
+      if (pulse._r > 14 || pulse._opacity <= 0) {
+        pulse._r = r;
+        pulse._opacity = 0.6;
+      }
+    });
+    requestAnimationFrame(animatePulses);
+  }
+
+  function loadWorldMap(callback) {
+    fetch('/static/world-map.json?v=3').then(function(r) { return r.json(); }).then(function(data) {
+      var continentsGroup = document.getElementById('map-continents');
+      if (continentsGroup && data.land) {
+        var path = createSVGElement('path', {
+          'd': data.land,
+          'class': 'continent'
+        });
+        continentsGroup.appendChild(path);
+      }
+      callback();
+    }).catch(function() {
+      callback();
+    });
+  }
+
+  loadWorldMap(function() {
+    renderNodes();
+    renderLinks();
+    updateStats();
+    startAutoRefresh();
+    requestAnimationFrame(animatePulses);
+    // Auto-enter first-level focus on page load
+    focusOnNodes();
+    setFocusState(true);
+    // Auto-start jitter simulation in demo mode
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('demo')) {
+      setTimeout(startJitter, 1500);
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,5 +1,8 @@
-﻿import uuid
-from datetime import UTC, datetime
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,7 +12,7 @@ from app.peer.validation import DEFAULT_WIREGUARD_MTU
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def new_uuid() -> str:
@@ -27,10 +30,10 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     primary_asn: Mapped[str] = mapped_column(String(32), index=True, unique=True)
-    first_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    first_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     identities: Mapped[list["ASNIdentity"]] = relationship(back_populates="user")
     telegram_bindings: Mapped[list["TelegramBinding"]] = relationship(back_populates="user")
@@ -43,10 +46,10 @@ class ASNIdentity(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     asn: Mapped[str] = mapped_column(String(32), index=True)
     mnt_json: Mapped[str] = mapped_column(Text, default="[]")
-    effective_mnt: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    effective_mnt: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     allowed4_json: Mapped[str] = mapped_column(Text, default="[]")
     allowed6_json: Mapped[str] = mapped_column(Text, default="[]")
-    authtype: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    authtype: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="identities")
@@ -58,10 +61,10 @@ class AuthChallenge(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     purpose: Mapped[str] = mapped_column(String(32), index=True)
-    telegram_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    telegram_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -72,7 +75,7 @@ class TelegramBinding(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     telegram_user_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     telegram_chat_id: Mapped[str] = mapped_column(String(64), index=True)
-    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="telegram_bindings")
@@ -105,7 +108,7 @@ class Node(Base):
     dn42_ipv4: Mapped[str] = mapped_column(String(64), default="")
     dn42_ipv6: Mapped[str] = mapped_column(String(64), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     system_status_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -133,7 +136,7 @@ class PeerRequest(Base):
     admin_note: Mapped[str] = mapped_column(Text, default="")
     deploy_status: Mapped[str] = mapped_column(String(32), default="not_deployed", index=True)
     deploy_output: Mapped[str] = mapped_column(Text, default="")
-    deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -157,7 +160,7 @@ class IntraLink(Base):
     node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
     # remote_node_id is node B (optional): when the remote is another registered node we can
     # auto-fill its public key/endpoint. Nullable for links to manually-specified remotes.
-    remote_node_id: Mapped[str | None] = mapped_column(
+    remote_node_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("nodes.id"), nullable=True, index=True
     )
     label: Mapped[str] = mapped_column(String(64), default="")
@@ -170,19 +173,19 @@ class IntraLink(Base):
     link_local_address: Mapped[str] = mapped_column(String(128), default="")
     deploy_status: Mapped[str] = mapped_column(String(32), default="not_deployed", index=True)
     deploy_output: Mapped[str] = mapped_column(Text, default="")
-    deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     node: Mapped[Node] = relationship(foreign_keys=[node_id])
-    remote_node: Mapped["Node | None"] = relationship(foreign_keys=[remote_node_id])
+    remote_node: Mapped[Optional[Node]] = relationship(foreign_keys=[remote_node_id])
 
 
 class LGQuery(Base):
     __tablename__ = "lg_queries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
     query_type: Mapped[str] = mapped_column(String(32))
     target: Mapped[str] = mapped_column(String(255))
@@ -192,6 +195,19 @@ class LGQuery(Base):
 
     # Read-only convenience relationships for the admin audit log (joinedload avoids N+1 queries).
     # user_id is nullable (public queries), so the user relationship may be None.
-    node: Mapped["Node"] = relationship()
-    user: Mapped["User | None"] = relationship()
+    node: Mapped[Node] = relationship()
+    user: Mapped[Optional[User]] = relationship()
 
+
+class SystemSetting(Base):
+    """System-wide settings configurable by admin.
+    LLA rules, port ranges, ASN, self-owned network blocks, etc.
+    系统级设置,供 admin 配置:LLA 规则、端口范围、ASN、自有网段等。"""
+
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(String(255), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

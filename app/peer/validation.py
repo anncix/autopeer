@@ -5,6 +5,8 @@
 設定，因此每個輸入都需嚴格檢查。
 """
 
+from typing import Optional, Union
+
 import re
 from ipaddress import IPv6Address, IPv6Network, ip_address, ip_interface
 
@@ -129,7 +131,7 @@ def normalize_optional_ip(value: str, *, version: int) -> str:
     return value
 
 
-def normalize_wireguard_mtu(value: int | str | None = None) -> int:
+def normalize_wireguard_mtu(value: Optional[Union[int, str]] = None) -> int:
     """Validate a wg-quick MTU value; blank input falls back to the default."""
     if value is None:
         return DEFAULT_WIREGUARD_MTU

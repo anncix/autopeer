@@ -147,19 +147,19 @@
     if (!links.length) {
       var tr = document.createElement("tr");
       tr.innerHTML =
-        '<td colspan="6" class="empty-state" data-i18n="admin.no_intra_links">No internal links on this node yet.</td>';
+        '<td colspan="5" class="empty-state" data-i18n="admin.no_intra_links">No internal links on this node yet.</td>';
       tbody.appendChild(tr);
       return;
     }
     links.forEach(function (l) {
       var tr = document.createElement("tr");
-      var remote = esc(l.remote_name);
-      if (l.remote_endpoint) remote += (remote ? "<br>" : "") + '<span class="faint">' + esc(l.remote_endpoint) + "</span>";
+      var remote = l.remote_name ? esc(l.remote_name) : "—";
       tr.innerHTML =
-        '<td class="mono nowrap">' + esc(l.protocol_name) + (l.label ? '<br><span class="faint">' + esc(l.label) + "</span>" : "") + "</td>" +
-        '<td class="mono">' + remote + "</td>" +
-        '<td class="mono nowrap">' + esc(l.listen_port) + "</td>" +
+        '<td class="mono nowrap">' + remote + "</td>" +
         '<td class="mono nowrap">' + esc(l.link_local_address) + "</td>" +
+        '<td class="mono nowrap latency-cell" data-link-id="' + esc(l.id) + '">' +
+          '<span class="latency-placeholder" data-i18n="admin.latency_checking">Checking…</span>' +
+        "</td>" +
         '<td class="nowrap">' + deployBadge(l.deploy_status) + "</td>" +
         '<td class="nowrap">' +
           '<form method="post" action="/admin/nodes/' + esc(nodeIdFromTable(tbody)) + "/intra-links/" + esc(l.id) + '/deploy" style="display:inline">' +
@@ -173,32 +173,43 @@
     });
   }
 
+  function checkLatency(nodeId, linkId, cell) {
+    cell.innerHTML = '<span class="latency-placeholder" data-i18n="admin.latency_checking">Checking…</span>';
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/intra-links/" + encodeURIComponent(linkId) + "/latency", {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        if (data.ok && data.latency_ms != null) {
+          var cls = data.latency_ms < 10 ? "latency-good" : data.latency_ms < 50 ? "latency-warn" : "latency-bad";
+          cell.innerHTML = '<span class="latency-value ' + cls + '">' + esc(data.latency_ms.toFixed(1)) + ' ms</span>';
+        } else {
+          cell.innerHTML = '<span class="latency-value latency-bad">—</span>';
+        }
+      })
+      .catch(function () {
+        cell.innerHTML = '<span class="latency-value latency-bad">—</span>';
+      });
+  }
+
+  function refreshLatencyForAll(nodeId) {
+    var cells = document.querySelectorAll(".latency-cell");
+    cells.forEach(function (cell) {
+      var linkId = cell.getAttribute("data-link-id");
+      if (linkId) checkLatency(nodeId, linkId, cell);
+    });
+  }
+
   // The links table sits under /admin/nodes/{node_id}/edit; we extract node_id from the table's
   // data-node-id attribute (set in the template) rather than parsing the URL.
   function nodeIdFromTable(tbody) {
     return tbody.getAttribute("data-node-id") || "";
   }
 
-  function showIntraFlash(container, message, ok) {
-    if (!container) return;
-    var div = document.createElement("div");
-    div.className = "flash flash-" + (ok ? "success" : "error");
-    div.innerHTML =
-      '<span>' + esc(message) + "</span>" +
-      '<button type="button" class="flash-close" aria-label="close">×</button>';
-    container.innerHTML = "";
-    container.appendChild(div);
-    if (ok) {
-      setTimeout(function () {
-        if (div.parentNode) div.remove();
-      }, 6000);
-    }
-  }
-
   function setupIntraLinks() {
     var form = document.getElementById("intra-link-form");
     var tbody = document.getElementById("intra-links-tbody");
-    if (!form || !tbody) return;
+    if (!tbody) return;
     var nodeId = nodeIdFromTable(tbody);
     var flashBox = document.getElementById("intra-link-flash");
 
@@ -211,8 +222,131 @@
           renderIntraLinksTable(tbody, data.links || []);
           var badge = document.querySelector('[data-tab="links"] .tab-count');
           if (badge) badge.textContent = String(data.count || 0);
+          refreshLatencyForAll(nodeId);
         })
         .catch(function () { /* network error — leave the existing table in place */ });
+    }
+
+    function showIntraFlash(container, message, ok) {
+      if (!container) return;
+      var div = document.createElement("div");
+      div.className = "flash flash-" + (ok ? "success" : "error");
+      div.innerHTML =
+        '<span>' + esc(message) + "</span>" +
+        '<button type="button" class="flash-close" aria-label="close">×</button>';
+      container.innerHTML = "";
+      container.appendChild(div);
+      if (ok) {
+        setTimeout(function () {
+          if (div.parentNode) div.remove();
+        }, 6000);
+      }
+    }
+
+    refresh();
+
+    // Event-delegated submit handler for the per-row redeploy / delete forms.
+    tbody.addEventListener("submit", function (e) {
+      var f = e.target;
+      if (!f || f.tagName !== "FORM") return;
+      var action = f.getAttribute("action") || "";
+      var isDeploy = /\/intra-links\/[^/]+\/deploy$/.test(action);
+      var isDelete = /\/intra-links\/[^/]+\/delete$/.test(action);
+      if (!isDeploy && !isDelete) return;
+
+      e.stopPropagation();
+      var confirmMsg = f.getAttribute("data-confirm");
+      if (confirmMsg && !window.confirm(confirmMsg)) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+
+      var btn = f.querySelector('button[type="submit"]');
+      var prev = btn ? btn.textContent : "";
+      var workingLabel = isDeploy
+        ? (window.getTranslation ? window.getTranslation("admin.redeployding") : "Redeploying…")
+        : (window.getTranslation ? window.getTranslation("admin.deleting") : "Deleting…");
+      if (btn) { btn.disabled = true; btn.textContent = workingLabel; }
+
+      fetch(action + "/api", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: "HTTP " + r.status }; }); })
+        .then(function (data) {
+          showIntraFlash(flashBox, data.message || "", data.ok);
+          if (data.ok) {
+            refresh();
+          } else if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev;
+          }
+        })
+        .catch(function (err) {
+          showIntraFlash(flashBox, "Request failed: " + err, false);
+          if (btn) { btn.disabled = false; btn.textContent = prev; }
+        });
+    });
+
+    // Form handling (only when form exists — i.e. on the separate create-link page)
+    if (!form) return;
+
+    var selfNodeName = form.getAttribute("data-node-name") || "";
+    var remoteSelect = form.querySelector('[name="remote_node_id"]');
+    var pubkeyInput = form.querySelector('[name="remote_public_key"]');
+    var endpointInput = form.querySelector('[name="remote_endpoint"]');
+    var labelInput = form.querySelector('[name="label"]');
+
+    var lastAutoFilledPubkey = "";
+    var lastAutoFilledEndpoint = "";
+
+    function generateLabel(remoteName) {
+      if (!selfNodeName || !remoteName) return "";
+      return selfNodeName + "_" + remoteName;
+    }
+
+    function autoFillFromNode(nodeData, remoteName) {
+      if (!nodeData) return;
+      if (pubkeyInput && nodeData.wg_public_key && (pubkeyInput.value === lastAutoFilledPubkey || !lastAutoFilledPubkey)) {
+        pubkeyInput.value = nodeData.wg_public_key;
+        lastAutoFilledPubkey = nodeData.wg_public_key;
+      }
+      if (endpointInput && nodeData.url && (endpointInput.value === lastAutoFilledEndpoint || !lastAutoFilledEndpoint)) {
+        endpointInput.value = nodeData.url;
+        lastAutoFilledEndpoint = nodeData.url;
+      }
+      if (labelInput && remoteName) {
+        labelInput.value = generateLabel(remoteName);
+      }
+    }
+
+    if (remoteSelect) {
+      remoteSelect.addEventListener("change", function () {
+        var val = remoteSelect.value;
+        if (!val) {
+          lastAutoFilledPubkey = "";
+          lastAutoFilledEndpoint = "";
+          if (labelInput) labelInput.value = "";
+          return;
+        }
+        var opt = remoteSelect.options[remoteSelect.selectedIndex];
+        var remoteName = opt.getAttribute("data-name") || "";
+        var cachedData = {
+          wg_public_key: opt.getAttribute("data-pubkey") || "",
+          url: opt.getAttribute("data-url") || "",
+        };
+        if (cachedData.wg_public_key || cachedData.url) {
+          autoFillFromNode(cachedData, remoteName);
+        } else {
+          fetch("/admin/nodes/" + encodeURIComponent(val) + "/info", {
+            headers: { Accept: "application/json" },
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) { autoFillFromNode(data, remoteName); })
+            .catch(function () { /* silently ignore */ });
+        }
+      });
     }
 
     form.addEventListener("submit", function (e) {
@@ -241,85 +375,172 @@
             showIntraFlash(flashBox, data.reverse_message, !!data.reverse_ok);
           }
           if (data.ok) {
-            // Reset only the manual fields; keep remote_node selection for convenience.
             form.querySelector('[name="remote_public_key"]').value = "";
             form.querySelector('[name="remote_endpoint"]').value = "";
-            form.querySelector('[name="label"]').value = "";
+            if (labelInput) labelInput.value = "";
+            if (remoteSelect) remoteSelect.value = "";
+            lastAutoFilledPubkey = "";
+            lastAutoFilledEndpoint = "";
             refresh();
           }
         })
         .catch(function (err) {
-          showIntraFlash(flashBox, "Request failed: " + err, false);
+          showIntraFlash(flashBox, "Network error: " + err.message, false);
         })
         .finally(function () {
           if (btn) { btn.disabled = false; btn.textContent = prev; }
         });
     });
+  }
 
-    // Refresh once on load so the table reflects any out-of-band changes (e.g. reverse link created
-    // on the remote that this page doesn't know about yet).
-    refresh();
+  // ---------- OSPF / BIRD-base / Flap tab inline loading ----------
+  var tabDataLoaded = { ospf: false, "bird-base": false, flap: false };
 
-    // Event-delegated submit handler for the per-row redeploy / delete forms. The table body is
-    // re-rendered by refresh() (innerHTML replaced), so we cannot attach listeners to the forms
-    // directly — delegating on the stable <tbody> survives re-renders. Each form's native action=
-    // POST is the no-JS fallback; with JS on we POST to the /api variant and refresh in place.
-    // 逐行 redeploy / delete 表單的事件委派 submit 處理。表格 body 由 refresh() 重渲染(innerHTML
-    // 替換),故無法直接在 form 上掛監聽器——委派到穩定的 <tbody> 才能在重渲染後存活。每個 form
-    // 的原生 action= POST 是無 JS 回退;JS 啟用時改 POST 到 /api 變體並就地刷新。
-    tbody.addEventListener("submit", function (e) {
-      var f = e.target;
-      if (!f || f.tagName !== "FORM") return;
-      var action = f.getAttribute("action") || "";
-      var isDeploy = /\/intra-links\/[^/]+\/deploy$/.test(action);
-      var isDelete = /\/intra-links\/[^/]+\/delete$/.test(action);
-      if (!isDeploy && !isDelete) return;
+  function tabNodeId() {
+    var tbody = document.getElementById("intra-links-tbody");
+    return tbody ? tbody.getAttribute("data-node-id") : "";
+  }
 
-      // Stop propagation so the document-level confirm handler (which would re-prompt) does not
-      // fire for a form we have taken over. We run our own confirm check below for delete.
-      // 停止冒泡,讓 document 級的 confirm 處理器(會重複彈框)不對我們接管的 form 觸發。
-      // delete 的 confirm 檢查在下方自行處理。
-      e.stopPropagation();
-      var confirmMsg = f.getAttribute("data-confirm");
-      if (confirmMsg && !window.confirm(confirmMsg)) {
-        e.preventDefault();
-        return;
-      }
-      e.preventDefault();
-
-      var btn = f.querySelector('button[type="submit"]');
-      var prev = btn ? btn.textContent : "";
-      var workingLabel = isDeploy
-        ? (window.getTranslation ? window.getTranslation("admin.redeployding") : "Redeploying…")
-        : (window.getTranslation ? window.getTranslation("admin.deleting") : "Deleting…");
-      if (btn) { btn.disabled = true; btn.textContent = workingLabel; }
-
-      fetch(action + "/api", {
-        method: "POST",
-        headers: { Accept: "application/json" },
+  function loadOspfTab() {
+    var nodeId = tabNodeId();
+    var box = document.getElementById("ospf-content");
+    if (!box || !nodeId || tabDataLoaded.ospf) return;
+    box.innerHTML = '<div class="loading" data-i18n="admin.loading">Loading…</div>';
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/ospf/json", {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        tabDataLoaded.ospf = true;
+        if (data.ok && data.neighbors) {
+          box.innerHTML =
+            '<div class="status-label" data-i18n="admin.ospf_neighbors">OSPF neighbors (birdc show ospf neighbor — v4 + v6)</div>' +
+            '<pre class="terminal">' + esc(data.neighbors) + "</pre>";
+        } else {
+          box.innerHTML =
+            '<pre class="terminal bad">' + esc(data.error || "No OSPF neighbor output.") + "</pre>";
+        }
       })
-        .then(function (r) { return r.json().catch(function () { return { ok: false, message: "HTTP " + r.status }; }); })
-        .then(function (data) {
-          showIntraFlash(flashBox, data.message || "", data.ok);
-          if (data.ok) {
-            refresh();
-          } else if (btn) {
-            // Deploy/delete failed — restore the button so the operator can retry without a reload.
-            // 部署/刪除失敗——還原按鈕讓操作者無需重載即可重試。
-            btn.disabled = false;
-            btn.textContent = prev;
+      .catch(function (err) {
+        box.innerHTML = '<pre class="terminal bad">' + esc("Failed: " + err.message) + "</pre>";
+      });
+  }
+
+  function loadBirdBaseTab() {
+    var nodeId = tabNodeId();
+    var box = document.getElementById("bird-base-content");
+    if (!box || !nodeId || tabDataLoaded["bird-base"]) return;
+    box.innerHTML = '<div class="loading" data-i18n="admin.loading">Loading…</div>';
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/bird-base/json", {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        tabDataLoaded["bird-base"] = true;
+        if (data.ok) {
+          box.innerHTML =
+            '<div class="status-label">DN42 BIRD2 base config</div>' +
+            '<pre class="terminal">' + esc(data.bird_base) + "</pre>" +
+            '<div class="status-label" style="margin-top:16px">ROA refresh cron script</div>' +
+            '<pre class="terminal">' + esc(data.roa_script) + "</pre>";
+        } else {
+          box.innerHTML = '<pre class="terminal bad">' + esc(data.error || "Failed to generate.") + "</pre>";
+        }
+      })
+      .catch(function (err) {
+        box.innerHTML = '<pre class="terminal bad">' + esc("Failed: " + err.message) + "</pre>";
+      });
+  }
+
+  function loadFlapTab() {
+    var nodeId = tabNodeId();
+    var box = document.getElementById("flap-content");
+    if (!box || !nodeId || tabDataLoaded.flap) return;
+    box.innerHTML = '<div class="loading" data-i18n="admin.loading">Loading…</div>';
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/flap/json", {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        tabDataLoaded.flap = true;
+        if (data.ok) {
+          var html = "";
+          if (data.current_states && Object.keys(data.current_states).length) {
+            html += '<div class="status-label" style="margin-bottom:8px">Current BGP states</div><table class="data-table"><thead><tr><th>Protocol</th><th>State</th></tr></thead><tbody>';
+            for (var proto in data.current_states) {
+              var state = data.current_states[proto];
+              var cls = state === "up" ? "badge-active" : state === "start" ? "badge-warn" : "badge-error";
+              html += '<tr><td class="mono nowrap">' + esc(proto) + '</td><td><span class="badge ' + cls + '">' + esc(state) + "</span></td></tr>";
+            }
+            html += "</tbody></table>";
           }
-        })
-        .catch(function (err) {
-          showIntraFlash(flashBox, "Request failed: " + err, false);
-          if (btn) { btn.disabled = false; btn.textContent = prev; }
-        });
-        // No finally(): on success the button's row is replaced by refresh(), so restoring it
-        // would clobber a row that no longer exists (e.g. after a successful delete). We restore
-        // the button only on failure, handled in the then/catch branches above.
-        // 不用 finally():成功時按鈕所在列已被 refresh() 替換,還原它會操作一個已不存在的列
-        // (例如刪除成功後)。僅在失敗時還原按鈕,於上方 then/catch 分支處理。
+          if (data.events && data.events.length) {
+            html += '<div class="status-label" style="margin:12px 0 8px">Recent flap events</div><table class="data-table"><thead><tr><th>Time</th><th>Protocol</th><th>From</th><th>To</th></tr></thead><tbody>';
+            data.events.slice(-20).reverse().forEach(function (ev) {
+              html += "<tr><td class=\"mono nowrap\">" + esc(ev.time || "") + "</td><td class=\"mono nowrap\">" + esc(ev.protocol || "") + "</td><td>" + esc(ev.from || "") + "</td><td>" + esc(ev.to || "") + "</td></tr>";
+            });
+            html += "</tbody></table>";
+          }
+          if (!html) {
+            html = '<div class="empty-state" data-i18n="admin.no_flap_events">No flap events recorded yet.</div>';
+          }
+          box.innerHTML = html;
+        } else {
+          box.innerHTML = '<pre class="terminal bad">' + esc(data.error || "Failed to fetch flap data.") + "</pre>";
+        }
+      })
+      .catch(function (err) {
+        box.innerHTML = '<pre class="terminal bad">' + esc("Failed: " + err.message) + "</pre>";
+      });
+  }
+
+  // ---------- tab switching ----------
+  function setupTabs() {
+    var tabBtns = document.querySelectorAll(".tab-btn");
+    if (!tabBtns.length) return;
+
+    function activateTab(tabName) {
+      tabBtns.forEach(function (btn) {
+        var isActive = btn.getAttribute("data-tab") === tabName;
+        btn.classList.toggle("is-active", isActive);
+        btn.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      var panels = document.querySelectorAll(".tab-panel");
+      panels.forEach(function (panel) {
+        var isActive = panel.getAttribute("data-panel") === tabName;
+        panel.classList.toggle("is-active", isActive);
+        if (isActive) {
+          panel.removeAttribute("hidden");
+        } else {
+          panel.setAttribute("hidden", "");
+        }
+      });
+      // Update URL hash without triggering scroll
+      if (history.replaceState) {
+        history.replaceState(null, "", "#" + tabName);
+      }
+      // Lazy-load tab content
+      if (tabName === "ospf") loadOspfTab();
+      if (tabName === "bird-base") loadBirdBaseTab();
+      if (tabName === "flap") loadFlapTab();
+    }
+
+    tabBtns.forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var tabName = btn.getAttribute("data-tab");
+        if (tabName) activateTab(tabName);
+      });
     });
+
+    // Activate tab from URL hash (e.g. #peers, #links)
+    var hash = window.location.hash.replace("#", "");
+    if (hash) {
+      var exists = Array.prototype.some.call(tabBtns, function (b) {
+        return b.getAttribute("data-tab") === hash;
+      });
+      if (exists) activateTab(hash);
+    }
   }
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -346,6 +567,81 @@
         }
       );
     });
+
+    // User menu dropdown
+    var avatarBtn = document.querySelector(".user-avatar-btn");
+    var userMenu = document.querySelector(".user-menu");
+    if (avatarBtn && userMenu) {
+      avatarBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var isHidden = userMenu.hasAttribute("hidden");
+        if (isHidden) {
+          userMenu.removeAttribute("hidden");
+          avatarBtn.setAttribute("aria-expanded", "true");
+        } else {
+          userMenu.setAttribute("hidden", "");
+          avatarBtn.setAttribute("aria-expanded", "false");
+        }
+      });
+
+      // Close menu on outside click
+      document.addEventListener("click", function (e) {
+        if (!userMenu.hasAttribute("hidden") && !userMenu.contains(e.target) && !avatarBtn.contains(e.target)) {
+          userMenu.setAttribute("hidden", "");
+          avatarBtn.setAttribute("aria-expanded", "false");
+        }
+      });
+
+      // Close on Escape
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !userMenu.hasAttribute("hidden")) {
+          userMenu.setAttribute("hidden", "");
+          avatarBtn.setAttribute("aria-expanded", "false");
+          avatarBtn.focus();
+        }
+      });
+
+      // Prevent clicks inside menu from closing it
+      userMenu.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+    }
+
+    // Theme toggle with smooth transition
+    var themeBtn = document.getElementById("theme-toggle");
+    if (themeBtn) {
+      themeBtn.addEventListener("click", function () {
+        var current = document.documentElement.getAttribute("data-theme") || "dark";
+        var next = current === "dark" ? "light" : "dark";
+        
+        // Add transition class for smooth theme change
+        document.documentElement.classList.add("theme-transition");
+        
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem("theme", next);
+        
+        // Update icon title
+        var label = next === "dark" ? "暗色模式" : "Light mode";
+        themeBtn.setAttribute("title", label);
+        themeBtn.setAttribute("aria-label", label);
+        
+        // Remove transition class after animation completes
+        setTimeout(function () {
+          document.documentElement.classList.remove("theme-transition");
+        }, 300);
+      });
+    }
+
+    // Language toggle
+    var langBtn = document.getElementById("lang-toggle");
+    if (langBtn) {
+      langBtn.addEventListener("click", function () {
+        var current = localStorage.getItem("lang") || "en";
+        var next = current === "en" ? "zh-CN" : "en";
+        localStorage.setItem("lang", next);
+        window.location.reload();
+      });
+    }
 
     // Confirm dialogs for destructive actions (data-confirm on the button or its form).
     document.addEventListener("submit", function (e) {
@@ -401,6 +697,16 @@
     setupAdminPeerForm();
     setupLgTargetPlaceholder();
     setupIntraLinks();
+    setupTabs();
+
+    // OSPF refresh button
+    var ospfRefreshBtn = document.getElementById("ospf-refresh");
+    if (ospfRefreshBtn) {
+      ospfRefreshBtn.addEventListener("click", function () {
+        tabDataLoaded.ospf = false;
+        loadOspfTab();
+      });
+    }
 
     // Flash banners: close button always; auto-dismiss non-errors after a few seconds.
     document.addEventListener("click", function (e) {

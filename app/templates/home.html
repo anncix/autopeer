@@ -1,57 +1,66 @@
 {% extends "base.html" %}
 {% block title %}{{ settings.app_name }}{% endblock %}
 {% block content %}
-<div class="hero-split">
-  <section class="hero card">
-    <h1>{{ settings.app_name }}</h1>
-    {% if settings.local_asn_number %}<p class="hero-asn mono">AS{{ settings.local_asn_number }}</p>{% endif %}
-    <p class="muted hero-tagline" data-i18n="home.hero_tagline">
-      Automated dn42 peering and a public looking glass across our nodes.
-      Bring your ASN, pick a node, and get a ready-to-use WireGuard + BGP config.
-    </p>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="/nodes" data-i18n="home.browse_nodes">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        <span>Browse Nodes</span>
-      </a>
-      <a class="btn btn-secondary" href="/lg" data-i18n="home.open_looking_glass">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span>Open Looking Glass</span>
-      </a>
-      {% if user %}
-        <a class="btn btn-secondary" href="/portal/new" data-i18n="home.create_peer">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>Create a peer</span>
+
+<div class="hero-landing">
+  <section class="hero-main">
+    <div class="hero-copy hero-copy-full">
+      <span class="hero-kicker" data-i18n="home.kicker">dn42 · Anycast · Automation</span>
+      <h1>{{ settings.app_name }}</h1>
+      {% if settings.local_asn_number %}<p class="hero-asn mono">AS{{ settings.local_asn_number }}</p>{% endif %}
+      <p class="muted hero-tagline" data-i18n="home.hero_tagline">
+        Automated dn42 peering and a public looking glass across our nodes.
+        Bring your ASN, pick a node, and get a ready-to-use WireGuard + BGP config.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/nodes" data-i18n="home.browse_nodes">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span>Browse nodes</span>
         </a>
-      {% else %}
-        <a class="btn btn-secondary" href="/login" data-i18n="home.peer_with_us">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-          <span>Peer with us</span>
+        <a class="btn btn-secondary" href="/lg" data-i18n="home.open_looking_glass">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Open Looking Glass</span>
         </a>
-      {% endif %}
+        {% if user %}
+          <a class="btn btn-secondary" href="/portal/new" data-i18n="home.create_peer">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Create a peer</span>
+          </a>
+        {% else %}
+          <a class="btn btn-secondary" href="/login" data-i18n="home.peer_with_us">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            <span>Peer with us</span>
+          </a>
+        {% endif %}
+      </div>
     </div>
   </section>
 
-  <section class="hero-stats">
-    <div class="stats-grid">
-      <div class="stat-item">
-        <div class="stat-number">{{ stats_nodes }}</div>
-        <div class="stat-label" data-i18n="home.stat_nodes">Nodes</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-number">{{ stats_peers }}</div>
-        <div class="stat-label" data-i18n="home.stat_peers">Peerings</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-number">{{ stats_deployed }}</div>
-        <div class="stat-label" data-i18n="home.stat_deployed">Deployed</div>
-      </div>
+  <section class="hero-stats-bar">
+    <div class="hero-stat-item">
+      <span class="hero-stat-value">{{ stats_nodes_online }}<span class="hero-stat-total">/{{ stats_nodes }}</span></span>
+      <span class="hero-stat-label" data-i18n="home.stat_nodes_online">Nodes online</span>
+    </div>
+    <span class="hero-stat-divider"></span>
+    <div class="hero-stat-item">
+      <span class="hero-stat-value">{{ stats_peers }}</span>
+      <span class="hero-stat-label" data-i18n="home.stat_peers">Peerings</span>
+    </div>
+    <span class="hero-stat-divider"></span>
+    <div class="hero-stat-item">
+      <span class="hero-stat-value">{{ stats_deployed }}</span>
+      <span class="hero-stat-label" data-i18n="home.stat_deployed">Deployed</span>
     </div>
   </section>
 </div>
 
-<div class="card">
-  <div class="section-title"><h2 data-i18n="home.how_to_peer">How to peer with us</h2></div>
+<section class="home-section">
+  <div class="section-heading">
+    <div>
+      <h2 data-i18n="home.how_to_peer">How to peer with us</h2>
+      <p class="muted" data-i18n="home.how_to_peer_sub">Four steps to a deployed dn42 peering.</p>
+    </div>
+  </div>
   <div class="feature-grid-4">
     <div class="feature-item">
       <div class="feature-icon">
@@ -62,25 +71,26 @@
     </div>
     <div class="feature-item">
       <div class="feature-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       </div>
       <div class="feature-step" data-i18n="home.step2_title">Create peer</div>
-      <div class="feature-desc muted" data-i18n="home.step2_desc">Open New Peer, pick a node, and paste your WireGuard public key.</div>
+      <div class="feature-desc muted" data-i18n="home.step2_desc">Pick a node, paste your WireGuard public key.</div>
     </div>
     <div class="feature-item">
       <div class="feature-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
       </div>
       <div class="feature-step" data-i18n="home.step3_title">Choose IP</div>
-      <div class="feature-desc muted" data-i18n="home.step3_desc">Choose tunnel IP. Link-local works out of the box; ULA also accepted.</div>
+      <div class="feature-desc muted" data-i18n="home.step3_desc">Link-local works out of the box; ULA is also accepted.</div>
     </div>
     <div class="feature-item">
       <div class="feature-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
       </div>
       <div class="feature-step" data-i18n="home.step4_title">Deploy & Go</div>
-      <div class="feature-desc muted" data-i18n="home.step4_desc">We validate and auto-deploy. Copy our config and bring up your side.</div>
+      <div class="feature-desc muted" data-i18n="home.step4_desc">We auto-deploy. Copy our config and bring up your side.</div>
     </div>
   </div>
-</div>
+</section>
+
 {% endblock %}

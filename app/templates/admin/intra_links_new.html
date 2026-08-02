@@ -1,0 +1,274 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header %}
+{% block title %}Create link · {{ node.name }} · {{ settings.app_name }}{% endblock %}
+{% block admin %}
+{{ page_header("Create intra link", "Create an iBGP/OSPF backbone WireGuard tunnel from " ~ node.name ~ " to another node.", i18n_key="admin.create_intra_link", i18n_subtitle_key="admin.intra_links_desc") }}
+
+<a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit#links" data-i18n="admin.back_to_node">
+  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+  <span>Back to node</span>
+</a>
+
+<div class="card" style="margin-top:16px">
+  <h2 data-i18n="admin.create_intra_link">Create intra link</h2>
+  <div id="intra-link-flash" style="margin-bottom:12px"></div>
+  <form id="intra-link-form" method="post" action="/admin/nodes/{{ node.id }}/intra-links" class="form-compact" data-node-name="{{ node.name }}">
+
+    <div class="form-row">
+      <span class="form-label" data-i18n="admin.intra_remote_node">Remote node</span>
+      <select name="remote_node_id" class="form-control">
+        <option value="" data-i18n="admin.intra_manual">(manual)</option>
+        {% for rn in remote_node_choices %}
+        <option value="{{ rn.id }}" data-name="{{ rn.name }}" data-location="{{ rn.location or '' }}" data-pubkey="{{ rn.wg_public_key or '' }}" data-url="{{ rn.url or '' }}">{{ rn.name }}{% if rn.location %} - {{ rn.location }}{% endif %}{% if not rn.wg_public_key %} (no pubkey){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Auto-filled info (visible when remote node selected) -->
+    <div class="form-row" id="auto-filled-info" style="display:none">
+      <span class="form-label" data-i18n="admin.auto_filled">Auto-filled</span>
+      <span class="form-value" id="auto-filled-detail" style="font-size:0.78rem;color:var(--muted)"></span>
+    </div>
+
+    <!-- Manual input fields (hidden when remote node selected) -->
+    <div id="manual-fields">
+      <div class="form-row">
+        <span class="form-label" data-i18n="admin.intra_remote_pubkey">Public key</span>
+        <input name="remote_public_key" class="form-control mono" data-i18n-placeholder="admin.intra_remote_pubkey_placeholder" placeholder="44-char base64 key">
+      </div>
+
+      <div class="form-row">
+        <span class="form-label" data-i18n="admin.intra_remote_endpoint">Endpoint</span>
+        <input name="remote_endpoint" class="form-control mono" data-i18n-placeholder="admin.intra_remote_endpoint_placeholder" placeholder="host:port">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <span class="form-label" data-i18n="admin.intra_listen_port">Listen port</span>
+      <span class="port-display" id="port-display">
+        <span class="port-value"><span class="port-loading" data-i18n="admin.loading">Loading…</span></span>
+        <span class="port-range">41400–44399</span>
+      </span>
+    </div>
+
+    <input type="hidden" name="label" value="">
+    <input type="hidden" name="listen_port" id="listen-port-input" value="">
+
+    <div class="form-actions">
+      <div class="checkbox-row">
+        <label class="checkbox-label" data-i18n="admin.intra_deploy_now">
+          <input type="checkbox" name="deploy" value="1" checked>
+          Deploy immediately
+        </label>
+        <label class="checkbox-label" data-i18n="admin.intra_reverse">
+          <input type="checkbox" name="reverse" value="1" checked>
+          Bi-directional
+        </label>
+      </div>
+      <button type="submit" class="btn-primary" data-i18n="admin.intra_create">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Create link</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  var form = document.getElementById("intra-link-form");
+  var flashBox = document.getElementById("intra-link-flash");
+  var selfNodeName = form.getAttribute("data-node-name") || "";
+  var nodeId = "";
+  // Extract node ID from the form action URL like /admin/nodes/{id}/intra-links
+  if (form && form.action) {
+    var actionPath = form.action.split("?")[0];
+    var pathParts = actionPath.split("/");
+    // Find the node ID after "nodes" in the path
+    var nodesIdx = pathParts.indexOf("nodes");
+    if (nodesIdx >= 0 && nodesIdx + 1 < pathParts.length) {
+      nodeId = pathParts[nodesIdx + 1];
+    }
+  }
+
+  var remoteSelect = form.querySelector('[name="remote_node_id"]');
+  var pubkeyInput = form.querySelector('[name="remote_public_key"]');
+  var endpointInput = form.querySelector('[name="remote_endpoint"]');
+  var labelInput = form.querySelector('[name="label"]');
+  var portInput = document.getElementById("listen-port-input");
+  var portDisplay = document.getElementById("port-display");
+  var manualFields = document.getElementById("manual-fields");
+  var autoFilledInfo = document.getElementById("auto-filled-info");
+  var autoFilledDetail = document.getElementById("auto-filled-detail");
+
+  var lastAutoFilledPubkey = "";
+  var lastAutoFilledEndpoint = "";
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function generateLabel(remoteName) {
+    if (!selfNodeName || !remoteName) return "";
+    return selfNodeName + "_" + remoteName;
+  }
+
+  function toggleManualFields(show) {
+    if (manualFields) {
+      manualFields.style.display = show ? "" : "none";
+    }
+    if (autoFilledInfo) {
+      autoFilledInfo.style.display = show ? "none" : "";
+    }
+  }
+
+  function autoFillFromNode(nodeData, remoteName) {
+    if (!nodeData) return;
+    if (pubkeyInput && nodeData.wg_public_key) {
+      pubkeyInput.value = nodeData.wg_public_key;
+      lastAutoFilledPubkey = nodeData.wg_public_key;
+    }
+    if (endpointInput && nodeData.url) {
+      endpointInput.value = nodeData.url;
+      lastAutoFilledEndpoint = nodeData.url;
+    }
+    if (labelInput && remoteName) {
+      labelInput.value = generateLabel(remoteName);
+    }
+    // Show auto-filled summary
+    if (autoFilledDetail) {
+      var parts = [];
+      if (nodeData.wg_public_key) parts.push("Key: " + nodeData.wg_public_key.substring(0, 8) + "…");
+      if (nodeData.url) parts.push("Endpoint: " + nodeData.url);
+      autoFilledDetail.textContent = parts.join(" · ");
+    }
+  }
+
+  function loadPort() {
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/intra-links/port", {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        if (data.ok) {
+          if (portInput) portInput.value = data.port;
+          if (portDisplay) {
+            portDisplay.innerHTML =
+              '<span class="port-value"><span class="port-num">' + esc(String(data.port)) + '</span></span>' +
+              '<span class="port-range">' + esc(data.range) + '</span>';
+          }
+        } else {
+          if (portDisplay) {
+            portDisplay.innerHTML = '<span class="port-value"><span class="port-num error">—</span></span><span class="port-range">' + esc(data.message || "Unavailable") + '</span>';
+          }
+        }
+      })
+      .catch(function () {
+        if (portDisplay) {
+          portDisplay.innerHTML = '<span class="port-value"><span class="port-num error">—</span></span><span class="port-range">Failed</span>';
+        }
+      });
+  }
+
+  function showFlash(container, message, ok) {
+    if (!container) return;
+    var div = document.createElement("div");
+    div.className = "flash flash-" + (ok ? "success" : "error");
+    div.innerHTML =
+      '<span>' + esc(message) + "</span>" +
+      '<button type="button" class="flash-close" aria-label="close">×</button>';
+    container.innerHTML = "";
+    container.appendChild(div);
+    if (ok) {
+      setTimeout(function () {
+        if (div.parentNode) div.remove();
+      }, 6000);
+    }
+  }
+
+  // Initialize: show manual fields by default
+  toggleManualFields(true);
+
+  // Load port on page load
+  loadPort();
+
+  if (remoteSelect) {
+    remoteSelect.addEventListener("change", function () {
+      var val = remoteSelect.value;
+      if (!val) {
+        // Manual mode: show input fields
+        lastAutoFilledPubkey = "";
+        lastAutoFilledEndpoint = "";
+        if (labelInput) labelInput.value = "";
+        if (pubkeyInput) pubkeyInput.value = "";
+        if (endpointInput) endpointInput.value = "";
+        toggleManualFields(true);
+        return;
+      }
+      // Remote node selected: hide manual fields, show auto-filled info
+      toggleManualFields(false);
+      var opt = remoteSelect.options[remoteSelect.selectedIndex];
+      var remoteName = opt.getAttribute("data-name") || "";
+      var cachedData = {
+        wg_public_key: opt.getAttribute("data-pubkey") || "",
+        url: opt.getAttribute("data-url") || "",
+      };
+      if (cachedData.wg_public_key || cachedData.url) {
+        autoFillFromNode(cachedData, remoteName);
+      } else {
+        fetch("/admin/nodes/" + encodeURIComponent(val) + "/info", {
+          headers: { Accept: "application/json" },
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) { autoFillFromNode(data, remoteName); })
+          .catch(function () { /* silently ignore */ });
+      }
+    });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var btn = form.querySelector('button[type="submit"]');
+    var prev = btn ? btn.textContent : "";
+    var creating = window.getTranslation ? window.getTranslation("admin.intra_creating") : "Creating…";
+    if (btn) { btn.disabled = true; btn.textContent = creating; }
+    var payload = {
+      remote_node_id: (form.querySelector('[name="remote_node_id"]') || {}).value || "",
+      remote_public_key: (form.querySelector('[name="remote_public_key"]') || {}).value || "",
+      remote_endpoint: (form.querySelector('[name="remote_endpoint"]') || {}).value || "",
+      label: (form.querySelector('[name="label"]') || {}).value || "",
+      listen_port: (portInput || {}).value || "",
+      deploy: !!(form.querySelector('[name="deploy"]') || {}).checked,
+      reverse: !!(form.querySelector('[name="reverse"]') || {}).checked,
+    };
+    fetch("/admin/nodes/" + encodeURIComponent(nodeId) + "/intra-links/api", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, message: "HTTP " + r.status }; }); })
+      .then(function (data) {
+        showFlash(flashBox, data.message || "", data.ok);
+        if (data.reverse_message) {
+          showFlash(flashBox, data.reverse_message, !!data.reverse_ok);
+        }
+        if (data.ok) {
+          if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span>Create link</span>'; }
+          if (data.link_id) {
+            setTimeout(function () {
+              window.location.href = "/admin/nodes/" + encodeURIComponent(nodeId) + "/edit#links";
+            }, 500);
+          }
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = prev; }
+        }
+      })
+      .catch(function (err) {
+        showFlash(flashBox, "Network error: " + err.message, false);
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      });
+  });
+})();
+</script>
+{% endblock %}

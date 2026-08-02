@@ -1,56 +1,95 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, bool_pill %}
+{% from "macros.html" import page_header, stat_chip %}
 {% block title %}Nodes · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Nodes", "Nodes connect back over WSS and deploy WireGuard + BIRD configs as root.", i18n_key="admin.nodes", i18n_subtitle_key="admin.nodes_desc") }}
+{{ page_header(
+    "Nodes",
+    "Nodes connect back over WSS and deploy WireGuard + BIRD configs as root.",
+    i18n_key="admin.nodes",
+    i18n_subtitle_key="admin.nodes_desc",
+    compact=True,
+    extra=stat_chip(nodes|length, "Nodes", "admin.nodes_count")
+) }}
 
-<div class="card">
-  <div class="section-title">
-    <h2 data-i18n="admin.existing_nodes">Existing nodes</h2>
-    <a href="/admin/nodes/new" class="btn btn-outlined btn-sm" data-i18n="admin.add_node">
-      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>Add node</span>
-    </a>
+{% if nodes %}
+<div class="router-list">
+  {% for node in nodes %}
+  {% set rt = node_runtime[node.id] %}
+  <div class="router-row card">
+    <div class="router-row-left">
+      <div class="router-avatar-wrapper">
+        <div class="avatar-container">
+          <span class="node-avatar-sm">{{ node.name[:2]|upper }}</span>
+        </div>
+      </div>
+      <div class="row-name-wrap">
+        <div class="row-name">
+          <a href="/admin/nodes/{{ node.id }}/edit">{{ node.name }}</a>
+          {% if not node.enabled %}<span class="badge badge-neutral" data-i18n="status.disabled">disabled</span>{% endif %}
+        </div>
+        <div class="row-meta">
+          {% if node.location %}<span>{{ node.location }}</span><span>•</span>{% endif %}
+          {% if rt.online %}
+            <span class="status-dot dot-online"></span>
+            <span class="status-text" data-i18n="home.online">online</span>
+          {% else %}
+            <span class="status-dot dot-offline"></span>
+            <span class="status-text" data-i18n="home.offline">offline</span>
+          {% endif %}
+          {% if rt.online and rt.system_summary %}<span>·</span><span class="row-submuted">{{ rt.system_summary }}</span>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="router-row-caps">
+      {% if node.dn42_ipv4 %}
+      <div class="cap-item">
+        <span class="cap-label" data-i18n="common.ipv4">IPv4</span>
+        <span class="cap-val mono">{{ node.dn42_ipv4 }}</span>
+      </div>
+      {% endif %}
+      {% if node.dn42_ipv6 %}
+      <div class="cap-item">
+        <span class="cap-label" data-i18n="common.ipv6">IPv6</span>
+        <span class="cap-val mono">{{ node.dn42_ipv6 }}</span>
+      </div>
+      {% endif %}
+      {% if node.asn %}
+      <div class="cap-item">
+        <span class="cap-label" data-i18n="common.asn">ASN</span>
+        <span class="cap-val mono">{{ node.asn }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="router-row-links">
+      <span class="link-badge wireguard" data-i18n="admin.wireguard">WireGuard</span>
+      {% if node.url %}
+      <span class="link-badge mono">{{ node.url|replace('https://', '') }}</span>
+      {% endif %}
+    </div>
+
+    <div class="row-actions">
+      <a class="btn btn-sm btn-ghost" href="/admin/network-search?node={{ node.id }}" title="Open LG on this node" data-i18n="admin.search_network">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </a>
+      <a class="btn btn-sm btn-ghost" href="/admin/nodes/{{ node.id }}/edit" title="Edit" data-i18n="admin.manage">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </a>
+      <a class="btn btn-sm btn-primary" href="/admin/nodes/{{ node.id }}/edit" title="Manage" data-i18n="admin.manage">
+        <span data-i18n="admin.manage">Manage</span>
+      </a>
+    </div>
   </div>
-  {% if nodes %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th data-i18n="admin.name">Name</th>
-          <th data-i18n="admin.location">Location</th>
-          <th data-i18n="admin.status">Status</th>
-          <th data-i18n="admin.system">System</th>
-          <th data-i18n="admin.enabled">Enabled</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for node in nodes %}
-        {% set rt = node_runtime[node.id] %}
-        <tr>
-          <td><a href="/admin/nodes/{{ node.id }}/edit">{{ node.name }}</a></td>
-          <td>{{ node.location or "—" }}</td>
-          <td class="node-health">
-            <span class="online-state {{ 'is-online' if rt.online else 'is-offline' }}">
-              <span class="online-dot" aria-hidden="true"></span><span data-i18n="{{ 'admin.online' if rt.online else 'admin.offline' }}">{{ "online" if rt.online else "offline" }}</span>
-            </span>
-          </td>
-          <td><span class="system-summary" title="{{ rt.system_summary }}">{{ rt.system_summary }}</span></td>
-          <td>{{ bool_pill(node.enabled, "on", "off", "admin.") }}</td>
-          <td class="nowrap">
-            <a class="btn btn-outlined btn-sm" href="/admin/nodes/{{ node.id }}/edit" data-i18n="admin.manage">
-              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-              <span>Manage</span>
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state" data-i18n="admin.no_nodes">No nodes yet. Add one above.</div>
-  {% endif %}
+  {% endfor %}
 </div>
+{% else %}
+<div class="empty-state card">
+  <h3 data-i18n="admin.no_nodes">No nodes yet.</h3>
+  <p class="muted" data-i18n="admin.no_nodes_sub">Add your first node to start deploying peerings.</p>
+  <a class="btn btn-primary" href="/admin/nodes/new" data-i18n="admin.add_node">
+    <span data-i18n="admin.add_node">Add node</span>
+  </a>
+</div>
+{% endif %}
 {% endblock %}

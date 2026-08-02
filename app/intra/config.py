@@ -31,8 +31,10 @@ if TYPE_CHECKING:
     # ``from __future__ import annotations`` above keeps annotations as strings, so this is safe.
     from app.db.models import IntraLink, Node
 
-# Base for the 414xx listen-port range; the last two digits are random.
+# Base for the 414xx-443xx listen-port range; supports up to 3000 concurrent links.
 INTRA_LISTEN_PORT_BASE = 41400
+INTRA_LISTEN_PORT_MAX = 44399
+INTRA_LISTEN_PORT_COUNT = INTRA_LISTEN_PORT_MAX - INTRA_LISTEN_PORT_BASE + 1  # 3000
 # Fixed prefix of the link-local host part: fe80::14:<random>.
 INTRA_LLA_PREFIX = "fe80::14:"
 
@@ -54,8 +56,8 @@ def intra_protocol_name(link_id: str) -> str:
 
 
 def generate_listen_port() -> int:
-    """Return a random port in the 41400–41499 range (414xx convention)."""
-    return INTRA_LISTEN_PORT_BASE + secrets.randbelow(100)
+    """Return a random port in the 41400–44399 range (3000 ports, 414xx-443xx convention)."""
+    return INTRA_LISTEN_PORT_BASE + secrets.randbelow(INTRA_LISTEN_PORT_COUNT)
 
 
 def generate_link_local_address() -> str:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Peer deployment: build configs, send to nodes via WebSocket, apply results.
 
 Acts as the control-plane → agent bridge. Each function is a single concern:

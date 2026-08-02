@@ -1,80 +1,223 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, stat_card, deploy_badge, badge %}
-{% block title %}Admin · {{ settings.app_name }}{% endblock %}
+{% from "macros.html" import page_header, stat_chip %}
+{% block title %}Dashboard · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Dashboard", "Control plane: " ~ settings.base_url, i18n_key="admin.dashboard", i18n_subtitle_key="admin.control_plane", i18n_subtitle_params={"url": settings.base_url}) }}
+{{ page_header(
+    "Dashboard",
+    "Overview of your dn42 network",
+    i18n_key="admin.dashboard",
+    i18n_subtitle_key="admin.dashboard_desc",
+    compact=True,
+    extra=stat_chip(stats.nodes_total, "Nodes", "admin.nodes") ~ stat_chip(stats.peers_total, "Peerings", "admin.peerings") ~ stat_chip(stats.links_total, "iBGP Links", "admin.intra_links") ~ stat_chip(users_total, "Users", "admin.users_count")
+) }}
 
-<div class="stat-grid">
-  {{ stat_card("Nodes online", stats.nodes_online, stats.nodes_enabled ~ " enabled / " ~ stats.nodes_total ~ " total", "accent", "/admin/nodes", i18n_key="admin.nodes_online", i18n_sub_key="admin.nodes_online_sub", i18n_sub_params={"enabled": stats.nodes_enabled, "total": stats.nodes_total}) }}
-  <div class="stat-card stat-ok stat-card-with-action">
-    <a class="stat-card-main" href="/admin/peers">
-      <div class="stat-value">{{ stats.peers_total }}</div>
-      <div class="stat-label" data-i18n="admin.peerings">Peerings</div>
-      <div class="stat-sub" data-i18n="admin.peerings_sub" data-i18n-param-deployed="{{ stats.peers_deployed }}">{{ stats.peers_deployed }} deployed</div>
-    </a>
-    <a class="btn btn-outlined btn-sm stat-card-action" href="/admin/peers/new" data-i18n="admin.add_peer">
-      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>Add peer</span>
-    </a>
-  </div>
-  {{ stat_card("Failed deploys", stats.peers_failed, "need attention" if stats.peers_failed else "all healthy", "bad" if stats.peers_failed else "ok", "/admin/peers", i18n_key="admin.failed_deploys", i18n_sub_key=("admin.failed_deploys_sub_attention" if stats.peers_failed else "admin.failed_deploys_sub_healthy")) }}
-  {{ stat_card("Members", stats.users_total, stats.users_admin ~ " admin", "neutral", "/admin/users", i18n_key="admin.members", i18n_sub_key="admin.members_sub", i18n_sub_params={"admin": stats.users_admin}) }}
-  {{ stat_card("Queries", stats.lg_total, "audit log", "neutral", "/admin/lg-log", i18n_key="admin.queries", i18n_sub_key="admin.queries_sub") }}
+<!-- Main stat cards -->
+<div class="dashboard-stats-grid">
+  <a class="stat-card stat-ok" href="/admin/nodes">
+    <div class="stat-value">{{ stats.nodes_online }}<span class="stat-total">/{{ stats.nodes_total }}</span></div>
+    <div class="stat-label" data-i18n="admin.online_nodes">Online Nodes</div>
+    <div class="stat-sub" data-i18n="admin.nodes_enabled">{{ stats.nodes_enabled }} enabled</div>
+  </a>
+  <a class="stat-card stat-accent" href="/admin/peers">
+    <div class="stat-value">{{ stats.peers_deployed }}<span class="stat-total">/{{ stats.peers_total }}</span></div>
+    <div class="stat-label" data-i18n="admin.deployed_peers">Deployed Peers</div>
+    <div class="stat-sub" data-i18n="admin.active_bgp_sessions">Active BGP sessions</div>
+  </a>
+  <a class="stat-card stat-warn" href="/admin/peers">
+    <div class="stat-value">{{ stats.peers_failed }}</div>
+    <div class="stat-label" data-i18n="admin.failed_deployments">Failed Deployments</div>
+    <div class="stat-sub" data-i18n="admin.needs_attention">Needs attention</div>
+  </a>
+  <a class="stat-card stat-bad" href="/admin/map">
+    <div class="stat-value">{{ stats.links_total }}</div>
+    <div class="stat-label" data-i18n="admin.intra_links">iBGP Links</div>
+    <div class="stat-sub" data-i18n="admin.view_network_map">View network map →</div>
+  </a>
+  <a class="stat-card stat-accent" href="/admin/users">
+    <div class="stat-value">{{ users_total }}</div>
+    <div class="stat-label" data-i18n="admin.members">Members</div>
+    <div class="stat-sub">{{ users_admin }} <span data-i18n="admin.admins">admins</span></div>
+  </a>
+  <a class="stat-card stat-ok" href="/admin/lg-log">
+    <div class="stat-value">{{ stats.lg_total }}</div>
+    <div class="stat-label" data-i18n="admin.recent_queries">LG Queries</div>
+    <div class="stat-sub" data-i18n="admin.looking_glass_activity">Looking glass activity</div>
+  </a>
 </div>
 
-{% if failed_peers %}
-<div class="card">
-  <div class="section-title"><h2 data-i18n="admin.needs_attention">Needs attention — failed deploys</h2></div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th data-i18n="portal.peer">Peer</th><th data-i18n="common.asn">ASN</th><th data-i18n="admin.node">Node</th><th data-i18n="admin.output">Output</th><th></th></tr></thead>
-      <tbody>
-        {% for peer in failed_peers %}
-        <tr>
-          <td class="mono">{{ peer.id[:8] }}…</td>
-          <td class="mono">AS{{ peer.asn | replace("AS", "", 1) }}</td>
-          <td>{{ peer.node.name }}</td>
-          <td><span class="truncate" title="{{ peer.deploy_output }}">{{ peer.deploy_output or "—" }}</span></td>
-          <td class="nowrap">
-            <a class="btn btn-outlined btn-sm" href="/admin/peers/{{ peer.id }}/edit" data-i18n="admin.manage">
-              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-              <span>Manage</span>
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<!-- Network map feature card -->
+<div class="dashboard-map-card">
+  <div class="dashboard-map-info">
+    <h3 data-i18n="admin.network_topology">Network Topology</h3>
+    <p data-i18n="admin.network_topology_desc">Real-time latency across all nodes with interactive world map visualization</p>
+    <a href="/admin/map" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0 15-18 0 0-9 9 0 0-3 3 0 0-3 3 0 0-3 3 0 0-3 3 0z"/></svg>
+      <span data-i18n="admin.open_network_map">Open Network Map</span>
+    </a>
+  </div>
+  <div class="dashboard-map-stats">
+    <div class="dms-item">
+      <span class="dms-value">{{ stats.nodes_online }}</span>
+      <span class="dms-label" data-i18n="admin.online">Online</span>
+    </div>
+    <div class="dms-divider"></div>
+    <div class="dms-item">
+      <span class="dms-value">{{ stats.links_total }}</span>
+      <span class="dms-label" data-i18n="admin.links">Links</span>
+    </div>
+    <div class="dms-divider"></div>
+    <div class="dms-item">
+      <span class="dms-value">{{ stats.peers_deployed }}</span>
+      <span class="dms-label" data-i18n="admin.peerings">Peerings</span>
+    </div>
   </div>
 </div>
-{% endif %}
 
-<div class="split-2">
+<!-- Two column: Node health + Failed deployments -->
+<div class="dashboard-grid-2col">
+  <!-- Node health -->
   <div class="card">
-    <div class="section-title"><h2 data-i18n="admin.recent_peerings">Recent peerings</h2><a href="/admin/peers" class="btn btn-ghost btn-sm" data-i18n="admin.all">All</a></div>
-    {% if recent_peers %}
-    <ul class="activity-list">
+    <div class="dashboard-section-header">
+      <h3 data-i18n="admin.node_health">Node Health</h3>
+      <a href="/admin/nodes" class="section-link" data-i18n="admin.view_all">View all →</a>
+    </div>
+    <div class="node-health-list">
+      {% for node in nodes_health[:5] %}
+      <div class="node-health-row">
+        <div class="nh-status nh-{{ 'online' if node.runtime.get('online') else 'offline' }}"></div>
+        <div class="nh-info">
+          <span class="nh-name">{{ node.name }}</span>
+          <span class="nh-loc">{{ node.location or '—' }}</span>
+        </div>
+        <div class="nh-detail">
+          {% if node.runtime.get('online') %}
+          <span class="badge badge-success" data-i18n="admin.online">Online</span>
+          {% else %}
+          <span class="badge badge-neutral" data-i18n="admin.offline">Offline</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Failed deployments -->
+  <div class="card">
+    <div class="dashboard-section-header">
+      <h3 data-i18n="admin.failed_deployments">Failed Deployments</h3>
+      <a href="/admin/peers" class="section-link" data-i18n="admin.view_all">View all →</a>
+    </div>
+    {% if failed_peers %}
+    <div class="failed-list">
+      {% for peer in failed_peers[:5] %}
+      <div class="failed-row">
+        <div class="failed-info">
+          <span class="failed-asn">AS{{ peer.asn }}</span>
+          <span class="failed-node">{{ peer.node.name if peer.node else '—' }}</span>
+        </div>
+        <div class="failed-status">
+          <span class="badge badge-error" data-i18n="admin.failed">Failed</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <span data-i18n="admin.no_failed_deployments">No failed deployments</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Two column: Recent peers + Recent queries -->
+<div class="dashboard-grid-2col">
+  <!-- Recent peers -->
+  <div class="card">
+    <div class="dashboard-section-header">
+      <h3 data-i18n="admin.recent_peers">Recent Peers</h3>
+      <a href="/admin/peers" class="section-link" data-i18n="admin.view_all">View all →</a>
+    </div>
+    <div class="recent-list">
       {% for peer in recent_peers %}
-      <li>
-        <span class="mono">AS{{ peer.asn | replace("AS", "", 1) }}</span> @ {{ peer.node.name }}
-        <span>{{ deploy_badge(peer.deploy_status) }}</span>
-      </li>
+      <div class="recent-row">
+        <div class="recent-info">
+          <span class="recent-asn">AS{{ peer.asn }}</span>
+          <span class="recent-node">{{ peer.node.name if peer.node else '—' }}</span>
+        </div>
+        <div class="recent-meta">
+          {% if peer.deploy_status == 'deployed' %}
+          <span class="badge badge-success" data-i18n="admin.deployed">Deployed</span>
+          {% elif peer.deploy_status == 'failed' %}
+          <span class="badge badge-error" data-i18n="admin.failed">Failed</span>
+          {% else %}
+          <span class="badge badge-warning">{{ peer.deploy_status }}</span>
+          {% endif %}
+        </div>
+      </div>
       {% endfor %}
-    </ul>
-    {% else %}<div class="empty-state" data-i18n="admin.no_peers">No peers yet.</div>{% endif %}
+    </div>
   </div>
+
+  <!-- Recent queries -->
   <div class="card">
-    <div class="section-title"><h2 data-i18n="admin.recent_queries">Recent queries</h2><a href="/admin/lg-log" class="btn btn-ghost btn-sm" data-i18n="admin.all">All</a></div>
+    <div class="dashboard-section-header">
+      <h3 data-i18n="admin.recent_queries">Recent Queries</h3>
+      <a href="/admin/lg-log" class="section-link" data-i18n="admin.view_all">View all →</a>
+    </div>
     {% if recent_queries %}
-    <ul class="activity-list">
+    <div class="query-list">
       {% for q in recent_queries %}
-      <li>
-        <span class="mono truncate" title="{{ q.query_type }} {{ q.target }}">{{ q.query_type }} {{ q.target or "" }}</span>
-        <span>{{ badge("ok", "ok") if q.ok else badge("fail", "bad") }} {{ q.node.name if q.node else "?" }}</span>
-      </li>
+      <div class="query-row">
+        <div class="query-info">
+          <span class="query-type">{{ q.query_type }}</span>
+          <span class="query-node">{{ q.node.name if q.node else '—' }}</span>
+        </div>
+        <div class="query-meta">
+          {% if q.ok %}
+          <span class="badge badge-success" data-i18n="admin.ok">OK</span>
+          {% else %}
+          <span class="badge badge-error" data-i18n="admin.error">Error</span>
+          {% endif %}
+        </div>
+      </div>
       {% endfor %}
-    </ul>
-    {% else %}<div class="empty-state" data-i18n="admin.no_queries">No queries yet.</div>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span data-i18n="admin.no_queries">No queries yet</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Quick actions -->
+<div class="card dashboard-quick-actions-card">
+  <div class="dashboard-section-header">
+    <h3 data-i18n="admin.quick_actions">Quick Actions</h3>
+  </div>
+  <div class="quick-actions-grid">
+    <a href="/admin/map" class="quick-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0 15-18 0 0-9 9 0 0-3 3 0 0-3 3 0 0-3 3 0 0-3 3 0z"/></svg>
+      <span data-i18n="admin.network_map">Network Map</span>
+    </a>
+    <a href="/admin/nodes/new" class="quick-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="18" r="2"/><line x1="6" y1="6" x2="9.5" y2="10.5"/><line x1="18" y1="6" x2="14.5" y2="10.5"/><line x1="6" y1="18" x2="9.5" y2="13.5"/><line x1="18" y1="18" x2="14.5" y2="13.5"/></svg>
+      <span data-i18n="admin.add_node">Add Node</span>
+    </a>
+    <a href="/admin/peers/new" class="quick-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span data-i18n="admin.add_peer">Add Peer</span>
+    </a>
+    <a href="/admin/network-search" class="quick-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span data-i18n="admin.network_search">Network Search</span>
+    </a>
+    <a href="/admin/settings" class="quick-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span data-i18n="admin.settings">Settings</span>
+    </a>
   </div>
 </div>
 {% endblock %}

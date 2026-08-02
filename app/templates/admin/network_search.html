@@ -1,0 +1,208 @@
+{% extends "admin/layout.html" %}
+{% block admin %}
+
+<div class="page-header-compact">
+  <div>
+    <h1 data-i18n="admin.search_network">Network Search</h1>
+    <p class="muted" data-i18n="admin.search_network_desc">Search network information across nodes using looking-glass queries.</p>
+  </div>
+  <div class="stats-row">
+    <div class="stats-chip">
+      <span class="val">{{ nodes|length }}</span>
+      <span class="lbl" data-i18n="admin.nodes">Nodes</span>
+    </div>
+    <div class="stats-chip">
+      <span class="val">{{ peers_total }}</span>
+      <span class="lbl" data-i18n="admin.peerings">Peerings</span>
+    </div>
+    <div class="stats-chip">
+      <span class="val">{{ links_total }}</span>
+      <span class="lbl" data-i18n="admin.intra_links">Intra Links</span>
+    </div>
+  </div>
+</div>
+
+<form id="network-search-form">
+  <div class="search-section">
+    <div class="search-bar">
+      <div class="field">
+        <label for="search-node" data-i18n="admin.select_node">Node</label>
+        <select id="search-node" name="node_id" required>
+          <option value="" data-i18n="admin.select_all_nodes">All Nodes</option>
+          {% for node in nodes %}
+          <option value="{{ node.id }}">{{ node.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field short">
+        <label for="search-type" data-i18n="admin.query_type">Type</label>
+        <select id="search-type" name="query_type" required>
+          <option value="bird_route" data-i18n="lg.bird_route">BIRD Route</option>
+          <option value="bird_protocols" data-i18n="lg.bird_protocols">BIRD Protocols</option>
+          <option value="ospf_neighbors" data-i18n="lg.ospf_neighbors">OSPF Neighbors</option>
+          <option value="peer_status" data-i18n="lg.peer_status">Peer Status</option>
+          <option value="birdc" data-i18n="lg.birdc">BIRD Command</option>
+          <option value="bgp_summary" data-i18n="lg.bgp_summary">BGP Summary</option>
+          <option value="ip_route" data-i18n="lg.ip_route">IP Route</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="search-target" data-i18n="admin.query_target">Target</label>
+        <input type="text" id="search-target" name="target"
+               data-i18n-placeholder="admin.query_target_placeholder"
+               placeholder="AS4242430001 or 172.24.0.1">
+      </div>
+      <button type="submit" id="search-btn">
+        <span data-i18n="admin.search">Search</span>
+      </button>
+    </div>
+  </div>
+</form>
+
+<div class="results-area" id="results-panel">
+  <div class="results-toolbar" id="results-header" style="display:none">
+    <h3 data-i18n="admin.search_results">Search Results</h3>
+    <button class="btn-sm" id="clear-results" data-i18n="admin.clear">Clear</button>
+  </div>
+  <div id="results-content">
+    <div class="empty-state" data-i18n="admin.no_search_results">
+      No results. Select a node and query type to start searching.
+    </div>
+  </div>
+</div>
+
+{% if recent_queries %}
+<div class="recent-bar">
+  <span class="label" data-i18n="admin.recent_searches">Recent:</span>
+  <div class="recent-list-inline">
+    {% for q in recent_queries[:10] %}
+    <span class="recent-chip">
+      <span class="type">{{ q.query_type }}</span>
+      <span class="target">{{ q.target or '—' }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function() {
+  const form = document.getElementById('network-search-form');
+  const searchBtn = document.getElementById('search-btn');
+  const resultsContent = document.getElementById('results-content');
+  const resultsHeader = document.getElementById('results-header');
+  const clearBtn = document.getElementById('clear-results');
+  const targetInput = document.getElementById('search-target');
+  const queryType = document.getElementById('search-type');
+
+  const helpMap = {
+    'bird_route': 'Enter IP or ASN to search',
+    'bird_protocols': 'Enter protocol name',
+    'ospf_neighbors': 'Leave empty for all neighbors',
+    'peer_status': 'Enter protocol name',
+    'birdc': 'Enter birdc command',
+    'bgp_summary': 'Enter ASN',
+    'ip_route': 'Enter IP address'
+  };
+  const placeholderMap = {
+    'bird_route': '172.24.0.1 or AS4242430001',
+    'bird_protocols': 'ibgp_a1b2',
+    'ospf_neighbors': '(leave empty)',
+    'peer_status': 'ibgp_a1b2',
+    'birdc': 'show route protocol ...',
+    'bgp_summary': 'AS4242430001',
+    'ip_route': '172.24.0.1'
+  };
+
+  function updateHint() {
+    const type = queryType.value;
+    targetInput.placeholder = placeholderMap[type] || '';
+    targetInput.title = helpMap[type] || '';
+  }
+  queryType.addEventListener('change', updateHint);
+  updateHint();
+
+  // Render parsed bird_protocols data via the shared LG module
+  function renderBirdProtocols(data) {
+    if (window.LG && typeof window.LG.renderBirdProtocols === "function") {
+      return window.LG.renderBirdProtocols(data);
+    }
+    // Graceful fallback until lg.js is loaded
+    return '<p class="muted">BIRD protocol renderer loading, please retry…</p>';
+  }
+
+  function escapeHtml(text) {
+    if (window.LG && typeof window.LG.escapeHtml === "function") {
+      return window.LG.escapeHtml(text);
+    }
+    var div = document.createElement("div");
+    div.textContent = text == null ? "" : String(text);
+    return div.innerHTML;
+  }
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const nodeId = document.getElementById('search-node').value;
+    const type = queryType.value;
+    const target = targetInput.value.trim();
+
+    searchBtn.disabled = true;
+    searchBtn.textContent = '...';
+    resultsContent.innerHTML = '<div class="loading"></div>';
+    resultsHeader.style.display = 'none';
+
+    try {
+      const resp = await fetch('/admin/network-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ node_id: nodeId, query_type: type, target })
+      });
+      const data = await resp.json();
+      resultsHeader.style.display = 'flex';
+      resultsContent.innerHTML = '';
+
+      if (data.ok) {
+        const results = Array.isArray(data.results) ? data.results : [data];
+        results.forEach(function(r) {
+          const ok = r.ok;
+          const div = document.createElement('div');
+          div.className = 'result-item';
+          
+          // Build result content based on query type and parsed data
+          let contentHtml = '';
+          if (r.parsed && r.query_type === 'bird_protocols') {
+            contentHtml = renderBirdProtocols(r.parsed);
+          } else {
+            contentHtml = `<pre>${r.output || r.result || r.error || 'No output'}</pre>`;
+          }
+          
+          div.innerHTML = `
+            <div class="result-head">
+              <span class="node">${r.node_name || 'Unknown'}</span>
+              <span class="type">· ${r.query_type || type}</span>
+              <span class="status ${ok ? 'status-ok' : 'status-err'}">${ok ? 'OK' : 'FAIL'}</span>
+            </div>
+            <div class="result-body">${contentHtml}</div>
+          `;
+          resultsContent.appendChild(div);
+        });
+      } else {
+        resultsContent.innerHTML = `<div class="empty-state" data-i18n="admin.error">Error: ${data.error || 'Unknown error'}</div>`;
+      }
+      if (window.applyTranslations) window.applyTranslations(resultsContent);
+    } catch (err) {
+      resultsContent.innerHTML = `<div class="empty-state" data-i18n="admin.error">Error: ${err.message}</div>`;
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.innerHTML = '<span data-i18n="admin.search">Search</span>';
+    }
+  });
+
+  clearBtn.addEventListener('click', function() {
+    resultsContent.innerHTML = '<div class="empty-state" data-i18n="admin.no_search_results">No results. Select a node and query type to start searching.</div>';
+    resultsHeader.style.display = 'none';
+    if (window.applyTranslations) window.applyTranslations(resultsContent);
+  });
+})();
+</script>
+{% endblock %}

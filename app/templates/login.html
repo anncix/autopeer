@@ -6,5 +6,10 @@
   <p class="muted" data-i18n="login.desc">Use Kioubit.dn42 to prove control of your dn42 ASN, then you'll be signed in to the portal.</p>
   <script src="/static/kioubit-auth-button.js"></script>
   <kioubit-auth-btn return="{{ return_url }}" token="{{ token }}"></kioubit-auth-btn>
+
+  <div style="margin-top: 28px; padding-top: 20px; border-top: 1px dashed var(--border); text-align: center;">
+    <p class="muted" style="font-size: 13px;" data-i18n="login.debug_hint">Development / Testing:</p>
+    <a href="/debug/admin-login" class="btn btn-primary" data-i18n="login.debug_admin">🔓 Admin Debug Login (AS65000)</a>
+  </div>
 </section>
 {% endblock %}

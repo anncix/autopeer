@@ -24,7 +24,7 @@
         {% endfor %}
       </select>
     </label>
-    <label class="field" data-i18n="admin.peer_endpoint">WireGuard endpoint <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_endpoint_opt">WireGuard endpoint (optional)
       <input name="endpoint" value="{{ peer.endpoint }}" placeholder="host:port (blank = peer dials us)">
     </label>
     <label class="field" data-i18n="admin.peer_wg_pubkey">WireGuard public key
@@ -34,16 +34,16 @@
       <input name="wg_mtu" type="number" min="{{ wireguard_mtu_min }}" max="{{ wireguard_mtu_max }}"
              value="{{ peer.wg_mtu or default_wireguard_mtu }}" required>
     </label>
-    <label class="field" data-i18n="admin.peer_dn42_ipv4">Peer DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_dn42_ipv4_opt">Peer DN42 IPv4 (optional)
       <input name="peer_dn42_ipv4" value="{{ peer.peer_dn42_ipv4 }}" placeholder="172.20.x.y or 172.20.x.y/32">
     </label>
-    <label class="field" data-i18n="admin.peer_dn42_ipv6">Peer DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_dn42_ipv6_opt">Peer DN42 IPv6 (optional)
       <input name="peer_dn42_ipv6" value="{{ peer.peer_dn42_ipv6 }}" placeholder="fd00::1 or fd00::1/128">
     </label>
     <label class="field" data-i18n="admin.our_address">Our address
       <input name="local_link_address" value="{{ peer.local_link_address }}" required>
     </label>
-    <label class="field" data-i18n="admin.peer_link_local">Peer link-local address <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_link_local_opt">Peer link-local address (optional)
       <input name="peer_link_address" value="{{ peer.peer_link_address }}" placeholder="fe80::99 or a ULA">
     </label>
     <label class="checkbox-label" data-i18n="new_peer.bgp_extensions">

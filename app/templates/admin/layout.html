@@ -3,14 +3,68 @@
 {% set path = request.url.path %}
 <div class="admin-shell">
   <aside class="sidebar">
-    <span class="sidebar-label">Overview</span>
-    <a href="/admin" class="{{ 'active' if path == '/admin' else '' }}" data-i18n="admin.dashboard">Dashboard</a>
-    <span class="sidebar-label">Manage</span>
-    <a href="/admin/nodes" class="{{ 'active' if path.startswith('/admin/nodes') else '' }}" data-i18n="admin.nodes">Nodes</a>
-    <a href="/admin/peers" class="{{ 'active' if path.startswith('/admin/peers') else '' }}" data-i18n="admin.peerings">Peerings</a>
-    <a href="/admin/users" class="{{ 'active' if path.startswith('/admin/users') else '' }}" data-i18n="admin.members">Members</a>
-    <span class="sidebar-label">Audit</span>
-    <a href="/admin/lg-log" class="{{ 'active' if path.startswith('/admin/lg-log') else '' }}" data-i18n="admin.recent_queries">Query log</a>
+    <!-- User info card -->
+    {% if user %}
+    <div class="sidebar-user-card">
+      <div class="sidebar-user-avatar">
+        {% if user.is_admin %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        {% else %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        {% endif %}
+      </div>
+      <div class="sidebar-user-info">
+        <span class="sidebar-user-asn">AS{{ user.primary_asn }}</span>
+        <span class="sidebar-user-role">{{ 'Admin' if user.is_admin else 'Member' }}</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">
+        <span class="sidebar-label" data-i18n="admin.overview">Overview</span>
+        <a href="/admin" class="sidebar-link {{ 'active' if path == '/admin' else '' }}" data-i18n="admin.dashboard">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span class="sidebar-text">Dashboard</span>
+        </a>
+      </div>
+
+      <div class="sidebar-section">
+        <span class="sidebar-label" data-i18n="admin.quick_actions">Quick Actions</span>
+        <a href="/admin/nodes/new" class="sidebar-link" data-i18n="admin.add_node">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="18" r="2"/><line x1="6" y1="6" x2="9.5" y2="10.5"/><line x1="18" y1="6" x2="14.5" y2="10.5"/><line x1="6" y1="18" x2="9.5" y2="13.5"/><line x1="18" y1="18" x2="14.5" y2="13.5"/></svg>
+          <span class="sidebar-text">Add Node</span>
+        </a>
+        <a href="/admin/peers/new" class="sidebar-link" data-i18n="admin.add_peer">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="sidebar-text">Add Peer</span>
+        </a>
+      </div>
+
+      <div class="sidebar-section">
+        <span class="sidebar-label" data-i18n="admin.manage">Manage</span>
+        <a href="/admin/nodes" class="sidebar-link {{ 'active' if path.startswith('/admin/nodes') else '' }}" data-i18n="admin.nodes">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="18" r="2"/><line x1="6" y1="6" x2="9.5" y2="10.5"/><line x1="18" y1="6" x2="14.5" y2="10.5"/><line x1="6" y1="18" x2="9.5" y2="13.5"/><line x1="18" y1="18" x2="14.5" y2="13.5"/></svg>
+          <span class="sidebar-text">Nodes</span>
+        </a>
+        <a href="/admin/peers" class="sidebar-link {{ 'active' if path.startswith('/admin/peers') else '' }}" data-i18n="admin.peerings">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="sidebar-text">Peerings</span>
+        </a>
+        <a href="/admin/users" class="sidebar-link {{ 'active' if path.startswith('/admin/users') else '' }}" data-i18n="admin.members">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="sidebar-text">Members</span>
+        </a>
+      </div>
+
+      <div class="sidebar-section">
+        <span class="sidebar-label" data-i18n="admin.network">Network</span>
+        <a href="/admin/lg-log" class="sidebar-link {{ 'active' if path.startswith('/admin/lg-log') else '' }}" data-i18n="admin.recent_queries">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 8 12 12 14 14"/><circle cx="12" cy="12" r="10"/><line x1="8" y1="2" x2="8" y2="4"/><line x1="16" y1="2" x2="16" y2="4"/><line x1="8" y1="20" x2="8" y2="22"/><line x1="16" y1="20" x2="16" y2="22"/><line x1="2" y1="8" x2="4" y2="8"/><line x1="2" y1="16" x2="4" y2="16"/><line x1="20" y1="8" x2="22" y2="8"/><line x1="20" y1="16" x2="22" y2="16"/></svg>
+          <span class="sidebar-text">Query log</span>
+        </a>
+      </div>
+    </nav>
   </aside>
   <div class="admin-content">
     {% block admin %}{% endblock %}

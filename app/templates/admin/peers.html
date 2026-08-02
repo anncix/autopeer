@@ -1,8 +1,8 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, status_badge, deploy_badge, pagination %}
+{% from "macros.html" import page_header, status_badge, deploy_badge, pagination, stat_chip %}
 {% block title %}Peerings · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Peerings", "Create, edit, redeploy, or remove any peer across all nodes.", i18n_key="admin.peerings", i18n_subtitle_key="admin.peerings_desc") }}
+{{ page_header("Peerings", "Create, edit, redeploy, or remove any peer across all nodes.", i18n_key="admin.peerings", i18n_subtitle_key="admin.peerings_desc", compact=True, extra=stat_chip(peers|length, "Peers", "admin.peers_count")) }}
 
 <div class="card">
   <div class="section-title">

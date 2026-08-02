@@ -1,8 +1,8 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, badge, pagination %}
+{% from "macros.html" import page_header, badge, pagination, stat_chip %}
 {% block title %}Query log · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Query log", "Every query dispatched to a node, with its outcome.", i18n_key="admin.recent_queries", i18n_subtitle_key="admin.query_log_desc") }}
+{{ page_header("Query log", "Every query dispatched to a node, with its outcome.", i18n_key="admin.recent_queries", i18n_subtitle_key="admin.query_log_desc", compact=True, extra=stat_chip(queries|length, "Queries", "admin.queries_count")) }}
 <div class="card">
   {% if queries %}
   <div class="table-wrap">

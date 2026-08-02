@@ -1,0 +1,482 @@
+{% extends "admin/layout.html" %}
+{% from "macros.html" import page_header, stat_chip %}
+{% block admin %}
+{{ page_header("System Settings", "Configure system-wide parameters for LLA rules, port ranges, ASN, and network blocks.", i18n_key="admin.settings", i18n_subtitle_key="admin.settings_desc", compact=True) }}
+
+{% for flash in flashes %}
+<div class="flash flash-{{ flash.category }}">{{ flash.message }}</div>
+{% endfor %}
+
+<form method="post" action="/admin/settings/save" class="settings-tabs">
+
+  <!-- Tab Navigation -->
+  <nav class="tab-nav" role="tablist">
+    <button type="button" class="tab-btn active" data-tab="lla" role="tab" aria-selected="true">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+      <span data-i18n="admin.lla_rules_short">LLA</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="port" role="tab" aria-selected="false">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-8"/><path d="M20 20V6"/></svg>
+      <span data-i18n="admin.port_range_short">Ports</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="asn" role="tab" aria-selected="false">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      <span data-i18n="admin.asn_settings_short">ASN</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="networks" role="tab" aria-selected="false">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <span data-i18n="admin.owned_networks_short">Networks</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="peer" role="tab" aria-selected="false">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span data-i18n="admin.peer_settings_short">Peer & Rate</span>
+    </button>
+  </nav>
+
+  <!-- Tab Panels -->
+  <div class="tab-panels">
+
+    <!-- LLA Rules -->
+    <div class="tab-panel active" data-panel="lla" role="tabpanel">
+      <div class="panel-header">
+        <h2 data-i18n="admin.lla_rules">LLA Rules (Link-Local Address)</h2>
+        <p class="panel-desc" data-i18n="admin.lla_rules_desc">Configure how link-local addresses are generated for peer connections.</p>
+      </div>
+      <div class="settings-rows">
+        <div class="settings-row">
+          <label for="lla_base_network" data-i18n="admin.lla_base_network">Base Network</label>
+          <div class="settings-field">
+            <input type="text" id="lla_base_network" name="lla_base_network"
+                   value="{{ settings_map.get('lla_base_network', {}).get('value', '172.24.0.0') }}"
+                   data-i18n-placeholder="admin.lla_base_network_placeholder" placeholder="172.24.0.0">
+            <span class="settings-help" data-i18n="admin.lla_base_network_desc">Base network for generating peer link-local addresses</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="lla_subnet_prefix" data-i18n="admin.lla_subnet_prefix">Subnet Prefix</label>
+          <div class="settings-field">
+            <input type="text" id="lla_subnet_prefix" name="lla_subnet_prefix"
+                   value="{{ settings_map.get('lla_subnet_prefix', {}).get('value', '24') }}"
+                   data-i18n-placeholder="admin.lla_subnet_prefix_placeholder" placeholder="24">
+            <span class="settings-help" data-i18n="admin.lla_subnet_prefix_desc">Subnet prefix for LLA derivation</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Port Range -->
+    <div class="tab-panel" data-panel="port" role="tabpanel">
+      <div class="panel-header">
+        <h2 data-i18n="admin.port_range">Intra Link Port Range</h2>
+        <p class="panel-desc" data-i18n="admin.port_range_desc">Configure the port range for auto-assigned intra-link listen ports.</p>
+      </div>
+      <div class="settings-rows">
+        <div class="settings-row">
+          <label for="intra_port_base" data-i18n="admin.intra_port_base">Base Port</label>
+          <div class="settings-field">
+            <input type="number" id="intra_port_base" name="intra_port_base" min="1024" max="65535"
+                   value="{{ settings_map.get('intra_port_base', {}).get('value', '41400') }}">
+            <span class="settings-help" data-i18n="admin.intra_port_base_desc">Start of auto-assigned range</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="intra_port_max" data-i18n="admin.intra_port_max">Max Port</label>
+          <div class="settings-field">
+            <input type="number" id="intra_port_max" name="intra_port_max" min="1024" max="65535"
+                   value="{{ settings_map.get('intra_port_max', {}).get('value', '44399') }}">
+            <span class="settings-help" data-i18n="admin.intra_port_max_desc">End of auto-assigned range</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ASN Settings -->
+    <div class="tab-panel" data-panel="asn" role="tabpanel">
+      <div class="panel-header">
+        <h2 data-i18n="admin.asn_settings">ASN Settings</h2>
+        <p class="panel-desc" data-i18n="admin.asn_settings_desc">Configure ASN ranges for nodes and peer assignments.</p>
+      </div>
+      <div class="settings-rows">
+        <div class="settings-row">
+          <label for="default_asn" data-i18n="admin.default_asn">Default ASN</label>
+          <div class="settings-field">
+            <input type="text" id="default_asn" name="default_asn"
+                   value="{{ settings_map.get('default_asn', {}).get('value', '') }}"
+                   data-i18n-placeholder="admin.default_asn_placeholder" placeholder="AS65000">
+            <span class="settings-help" data-i18n="admin.default_asn_desc">Empty = use environment variable</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="asn_range_start" data-i18n="admin.asn_range_start">Range Start</label>
+          <div class="settings-field">
+            <input type="text" id="asn_range_start" name="asn_range_start"
+                   value="{{ settings_map.get('asn_range_start', {}).get('value', '4242430000') }}">
+            <span class="settings-help" data-i18n="admin.asn_range_start_desc">Start of peer ASN range</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="asn_range_end" data-i18n="admin.asn_range_end">Range End</label>
+          <div class="settings-field">
+            <input type="text" id="asn_range_end" name="asn_range_end"
+                   value="{{ settings_map.get('asn_range_end', {}).get('value', '4242439999') }}">
+            <span class="settings-help" data-i18n="admin.asn_range_end_desc">End of peer ASN range</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Networks -->
+    <div class="tab-panel" data-panel="networks" role="tabpanel">
+      <div class="panel-header">
+        <h2 data-i18n="admin.owned_networks">Self-Owned Network Blocks</h2>
+        <p class="panel-desc" data-i18n="admin.owned_networks_desc">Define your network blocks for route announcement.</p>
+      </div>
+      <div class="settings-rows">
+        <div class="settings-row">
+          <label for="owned_networks_v4" data-i18n="admin.owned_networks_v4">IPv4 Blocks</label>
+          <div class="settings-field">
+            <textarea id="owned_networks_v4" name="owned_networks_v4" rows="2"
+                      data-i18n-placeholder="admin.owned_networks_v4_placeholder"
+                      placeholder='["172.23.0.0/16"]'>{{ settings_map.get('owned_networks_v4', {}).get('value', '[]') }}</textarea>
+            <span class="settings-help" data-i18n="admin.owned_networks_v4_desc">JSON array of IPv4 CIDR blocks</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="owned_networks_v6" data-i18n="admin.owned_networks_v6">IPv6 Blocks</label>
+          <div class="settings-field">
+            <textarea id="owned_networks_v6" name="owned_networks_v6" rows="2"
+                      data-i18n-placeholder="admin.owned_networks_v6_placeholder"
+                      placeholder='["fd86:115::/48"]'>{{ settings_map.get('owned_networks_v6', {}).get('value', '[]') }}</textarea>
+            <span class="settings-help" data-i18n="admin.owned_networks_v6_desc">JSON array of IPv6 CIDR blocks</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Peer & Rate -->
+    <div class="tab-panel" data-panel="peer" role="tabpanel">
+      <div class="panel-header">
+        <h2 data-i18n="admin.peer_settings">Peer Defaults & Rate Limiting</h2>
+        <p class="panel-desc" data-i18n="admin.peer_settings_desc">Configure defaults for new peers and rate limits.</p>
+      </div>
+      <div class="settings-rows">
+        <div class="settings-row">
+          <label for="peer_wg_mtu" data-i18n="admin.peer_wg_mtu">WireGuard MTU</label>
+          <div class="settings-field">
+            <input type="number" id="peer_wg_mtu" name="peer_wg_mtu" min="1280" max="1500"
+                   value="{{ settings_map.get('peer_wg_mtu', {}).get('value', '1420') }}">
+            <span class="settings-help" data-i18n="admin.peer_wg_mtu_desc">Default MTU for new peers</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="peer_bgp_extended" data-i18n="admin.peer_bgp_extended">Extended BGP</label>
+          <div class="settings-field">
+            <select id="peer_bgp_extended" name="peer_bgp_extended">
+              <option value="true" {% if settings_map.get('peer_bgp_extended', {}).get('value', 'true') == 'true' %}selected{% endif %} data-i18n="common.enabled">Enabled</option>
+              <option value="false" {% if settings_map.get('peer_bgp_extended', {}).get('value', 'true') == 'false' %}selected{% endif %} data-i18n="common.disabled">Disabled</option>
+            </select>
+            <span class="settings-help" data-i18n="admin.peer_bgp_extended_desc">Extended communities for new peers</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="lg_rate_limit" data-i18n="admin.lg_rate_limit">Max Queries</label>
+          <div class="settings-field">
+            <input type="number" id="lg_rate_limit" name="lg_rate_limit" min="1" max="1000"
+                   value="{{ settings_map.get('lg_rate_limit', {}).get('value', '20') }}">
+            <span class="settings-help" data-i18n="admin.lg_rate_limit_desc">Max looking-glass queries per window</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="lg_rate_window" data-i18n="admin.lg_rate_window">Rate Window</label>
+          <div class="settings-field">
+            <input type="number" id="lg_rate_window" name="lg_rate_window" min="1" max="3600"
+                   value="{{ settings_map.get('lg_rate_window', {}).get('value', '60') }}">
+            <span class="settings-help" data-i18n="admin.lg_rate_window_desc">Rate limiting window in seconds</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="settings-footer">
+    <button type="submit" class="btn btn-primary" data-i18n="admin.save_settings">Save Settings</button>
+    <a href="/admin" class="btn btn-ghost" data-i18n="common.cancel">Cancel</a>
+  </div>
+</form>
+
+<style>
+.settings-tabs {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-nav::-webkit-scrollbar { display: none; }
+
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--t-fast) var(--ease-out);
+  position: relative;
+}
+
+.tab-btn .tab-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-btn:hover {
+  color: var(--text-1);
+  background: var(--surface-hover);
+}
+
+.tab-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--border-accent);
+}
+
+.tab-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tab Panels */
+.tab-panels {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  min-height: 280px;
+}
+
+.tab-panel {
+  display: none;
+  padding: var(--s-4);
+  animation: tabFadeIn var(--t-base) var(--ease-out);
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+@keyframes tabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Panel Header */
+.panel-header {
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.panel-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0 0 var(--s-1) 0;
+}
+
+.panel-desc {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Settings Rows (shared) */
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--s-3);
+  align-items: start;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row > label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-2);
+  padding-top: 6px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-field input,
+.settings-field select,
+.settings-field textarea {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--bg-0);
+  color: var(--text-1);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.settings-field input:focus,
+.settings-field select:focus,
+.settings-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.settings-field textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+  min-height: 48px;
+}
+
+.settings-help {
+  font-size: 0.72rem;
+  color: var(--text-4);
+  line-height: 1.4;
+}
+
+/* Footer */
+.settings-footer {
+  display: flex;
+  gap: var(--s-2);
+  justify-content: flex-end;
+  padding-top: var(--s-2);
+}
+
+.settings-footer .btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: var(--r-xs);
+  border: none;
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease-out);
+}
+
+.settings-footer .btn-primary:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.settings-footer .btn-ghost {
+  background: transparent;
+  color: var(--text-3);
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  padding: 8px 20px;
+  border-radius: var(--r-xs);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease-out);
+}
+
+.settings-footer .btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+@media (max-width: 640px) {
+  .tab-btn span { display: none; }
+  .tab-btn { padding: 6px 10px; }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .settings-row > label {
+    padding-top: 0;
+  }
+  .settings-help {
+    display: none;
+  }
+  .tab-panel {
+    padding: var(--s-3);
+  }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const nav = document.querySelector('.tab-nav');
+  if (!nav) return;
+
+  const buttons = nav.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.tab-panel');
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const target = this.dataset.tab;
+
+      buttons.forEach(b => {
+        b.classList.toggle('active', b === this);
+        b.setAttribute('aria-selected', b === this ? 'true' : 'false');
+      });
+
+      panels.forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.panel === target);
+      });
+
+      try { localStorage.setItem('settings_active_tab', target); } catch (e) {}
+    });
+  });
+
+  // Restore last active tab
+  try {
+    const saved = localStorage.getItem('settings_active_tab');
+    if (saved) {
+      const btn = nav.querySelector(`[data-tab="${saved}"]`);
+      if (btn) btn.click();
+    }
+  } catch (e) {}
+});
+</script>
+{% endblock %}

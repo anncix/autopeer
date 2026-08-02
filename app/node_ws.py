@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Node WebSocket transport: agent connection management and synchronous request dispatch.
 
 Architecture:
@@ -6,8 +7,6 @@ Architecture:
   NodeRuntime  → per-node in-memory liveness + system status
   request_node → async/sync dispatch helpers for callers
 """
-
-from __future__ import annotations
 
 import asyncio
 import functools

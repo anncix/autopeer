@@ -1,7 +1,9 @@
-﻿import ipaddress
+from __future__ import annotations
+
+import ipaddress
 import re
 
-ALLOWED_QUERY_TYPES = {"ping", "trace", "mtr", "route", "bird"}
+ALLOWED_QUERY_TYPES = {"ping", "trace", "mtr", "route", "bird", "bird_route", "bird_protocols", "bgp_summary", "ip_route"}
 # A BIRD protocol name as accepted by `birdc show protocols all <name>`: same shape the node
 # service enforces (safeNameRE in internal/runner/runner.go) — a leading alnum/underscore
 # followed by alnum/underscore/hyphen, so it can never break out of the fixed birdc argv.
@@ -60,17 +62,43 @@ def validate_target(query_type: str, target: str) -> str:
     query_type = validate_query_type(query_type)
     target = target.strip()
 
+    # bird_protocols and bird allow empty target = "list all protocols"
+    if query_type in ("bird", "bird_protocols"):
+        if not target:
+            return ""
+        if len(target) > 255:
+            raise ValueError("invalid target length")
+        if target.startswith("-") or UNSAFE_TARGET_RE.search(target):
+            raise ValueError("target contains unsupported characters")
+        if not BIRD_PROTOCOL_RE.match(target):
+            raise ValueError("target must be a valid BIRD protocol name")
+        return target
+
     if not target or len(target) > 255:
         raise ValueError("invalid target length")
     if target.startswith("-") or UNSAFE_TARGET_RE.search(target):
         raise ValueError("target contains unsupported characters")
 
-    if query_type == "bird":
-        # `birdc show protocols all <name>`: target is a BIRD protocol name, not an IP/host.
-        # Its grammar is far narrower than a hostname, so it is matched explicitly here.
-        if not BIRD_PROTOCOL_RE.match(target):
-            raise ValueError("target must be a valid BIRD protocol name")
-        return target
+    if query_type in ("bird_route", "bgp_summary", "ip_route"):
+        # These take IP/ASN/prefix targets (like `route`) — validate as IP or CIDR.
+        if not target:
+            return ""
+        try:
+            network = ipaddress.ip_network(target, strict=False)
+        except ValueError:
+            # Accept plain ASN targets like "AS4242430001"
+            asn_match = re.match(r"^AS\d{1,16}$", target, re.IGNORECASE)
+            if asn_match:
+                return target
+            # Accept plain IP
+            try:
+                addr = ipaddress.ip_address(target)
+                return str(addr)
+            except ValueError as exc:
+                raise ValueError(f"{query_type} target must be an IP, CIDR, or ASN") from exc
+        if query_type != "ip_route" and not _is_allowed_network(network):
+            raise ValueError("target is outside the allowed address space")
+        return str(network)
 
     if query_type == "route":
         try:

@@ -6,17 +6,19 @@ The page is split per section (``/admin``, ``/admin/nodes``, ``/admin/peers``, `
 redirect; genuine not-found stays a 404 (styled by the global handler).
 """
 
+from __future__ import annotations
+
 import asyncio
 import secrets
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth.service import unbind_telegram
-from app.db.models import ASNIdentity, IntraLink, LGQuery, Node, PeerRequest, TelegramBinding, User, new_uuid
+from app.db.models import ASNIdentity, IntraLink, LGQuery, Node, PeerRequest, SystemSetting, TelegramBinding, User, new_uuid
 from app.db.session import get_db
 from app.intra.config import (
     generate_link_local_address,
@@ -50,7 +52,7 @@ from app.peer.validation import (
     normalize_optional_ip,
     normalize_wireguard_key,
 )
-from app.web.deps import Pagination, flash, render, require_admin, settings
+from app.web.deps import Pagination, build_map_data, flash, render, require_admin, settings
 
 router = APIRouter()
 
@@ -95,6 +97,7 @@ def admin_overview(
         "peers_total": count(PeerRequest),
         "peers_deployed": count(PeerRequest, PeerRequest.deploy_status == "deployed"),
         "peers_failed": count(PeerRequest, PeerRequest.deploy_status == "failed"),
+        "links_total": count(IntraLink),
         "users_total": count(User),
         "users_admin": count(User, User.is_admin.is_(True)),
         "lg_total": count(LGQuery),
@@ -121,17 +124,48 @@ def admin_overview(
         .limit(8)
         .all()
     )
+    nodes_health = [
+        {"id": n.id, "name": n.name, "location": n.location, "runtime": runtime.get(n.id, {})}
+        for n in nodes_for_runtime
+    ]
     return render(
         request,
         "admin/overview.html",
         {
             "stats": stats,
+            "nodes_health": nodes_health,
             "failed_peers": failed_peers,
             "recent_peers": recent_peers,
             "recent_queries": recent_queries,
+            "users_total": stats["users_total"],
+            "users_admin": stats["users_admin"],
         },
         user=user,
         active="admin",
+    )
+
+
+@router.get("/admin/map", response_class=HTMLResponse)
+def admin_map(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Admin map view — now renders the shared public map template (front-facing).
+
+    The map lives at ``/map`` for all visitors; this admin route keeps the old URL working
+    and renders the same data with the admin chrome (sidebar) via ``admin/map.html``.
+    Pass ?demo=1 to force all enabled nodes online with mock latency for preview/testing.
+    """
+    demo = request.query_params.get("demo") in ("1", "true", "yes")
+    mock = request.query_params.get("mock") in ("1", "true", "yes")
+    map_data = build_map_data(db, demo=demo, mock=mock)
+    return render(
+        request,
+        "admin/map.html",
+        map_data,
+        user=user,
+        active="map",
     )
 
 
@@ -165,8 +199,8 @@ def admin_nodes_new(
     )
 
 
-@router.get("/admin/nodes/{node_id}/edit", response_class=HTMLResponse)
-def admin_node_edit(
+@router.get("/admin/nodes/{node_id}/intra-links/new", response_class=HTMLResponse)
+def admin_intra_links_new(
     node_id: str,
     request: Request,
     user: User = Depends(require_admin),
@@ -175,8 +209,52 @@ def admin_node_edit(
     node = db.query(Node).filter(Node.id == node_id).one_or_none()
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found")
+    remote_node_choices = _intra_remote_choices(db, node_id)
+    return render(
+        request,
+        "admin/intra_links_new.html",
+        {"node": node, "remote_node_choices": remote_node_choices},
+        user=user,
+        active="admin",
+    )
+
+
+@router.get("/admin/nodes/{node_id}/edit", response_class=HTMLResponse)
+def admin_node_edit(
+    node_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    import logging
+    import time
+
+    _log = logging.getLogger("dn42.autopeer.admin")
+    _log.setLevel(logging.DEBUG)
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.DEBUG)
+    if not _log.handlers:
+        _log.addHandler(_handler)
+
+    _t0 = time.perf_counter()
+    _log.info("[node_edit] === START node edit route === node_id=%s", node_id)
+    _log.debug("[node_edit] user=%s admin=%s", user.primary_asn, user.is_admin)
+
+    _t1 = time.perf_counter()
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        _log.warning("[node_edit] node NOT FOUND node_id=%s", node_id)
+        raise HTTPException(status_code=404, detail="Node not found")
+    _log.info("[node_edit] node loaded name=%s location=%s asn=%s enabled=%s (%.1fms)",
+              node.name, node.location, node.asn, node.enabled, (_t1 - _t0) * 1000)
+
+    _t2 = time.perf_counter()
     runtime = node_runtime_context([node])[node.id]
-    # dn42 peers homed on this node (Peers tab).
+    _log.info("[node_edit] runtime online=%s last_seen=%s system_keys=%s (%.1fms)",
+              runtime.get("online"), runtime.get("last_seen_at"),
+              list(runtime.get("system", {}).keys()), (_t2 - _t1) * 1000)
+
+    _t3 = time.perf_counter()
     peers = (
         db.query(PeerRequest)
         .filter(PeerRequest.node_id == node.id)
@@ -186,35 +264,86 @@ def admin_node_edit(
     peer_rows = [
         {"peer": p, "protocol_name": peer_protocol_name(p, node)} for p in peers
     ]
-    # Internal iBGP/OSPF links deployed on this node (Links tab).
+    _log.info("[node_edit] peers queried count=%d (%.1fms)", len(peers), (_t3 - _t2) * 1000)
+    if peers:
+        _log.debug("[node_edit] peer details: %s",
+                   [(p.id[:8], p.asn, p.status, p.deploy_status) for p in peers])
+
+    _t4 = time.perf_counter()
     intra_links = (
         db.query(IntraLink)
         .filter(IntraLink.node_id == node.id)
         .order_by(IntraLink.created_at.desc())
         .all()
     )
-    return render(
+    _log.info("[node_edit] intra_links queried count=%d (%.1fms)", len(intra_links), (_t4 - _t3) * 1000)
+    if intra_links:
+        _log.debug("[node_edit] intra_link details: %s",
+                   [(l.protocol_name, l.label, l.deploy_status, l.remote_endpoint) for l in intra_links])
+        for link in intra_links:
+            _log.debug("[node_edit]   link=%s remote_node=%s port=%d lla=%s deployed_at=%s output_len=%d",
+                       link.protocol_name,
+                       link.remote_node_id or "manual",
+                       link.listen_port,
+                       link.link_local_address,
+                       link.deployed_at,
+                       len(link.deploy_output or ""))
+
+    _t5 = time.perf_counter()
+    remote_node_choices = _intra_remote_choices(db, node.id)
+    _log.info("[node_edit] remote_node_choices count=%d (%.1fms)", len(remote_node_choices), (_t5 - _t4) * 1000)
+
+    _ctx = {
+        "node": node,
+        "runtime": runtime,
+        "peer_rows": peer_rows,
+        "peer_count": len(peer_rows),
+        "intra_links": intra_links,
+        "intra_link_count": len(intra_links),
+        "remote_node_choices": remote_node_choices,
+    }
+    _log.info("[node_edit] context prepared peer_count=%d intra_link_count=%d remote_choices=%d",
+              _ctx["peer_count"], _ctx["intra_link_count"], len(_ctx["remote_node_choices"]))
+
+    _t6 = time.perf_counter()
+    _log.info("[node_edit] === RENDERING template admin/node_edit.html === (%.1fms total so far)", (_t6 - _t0) * 1000)
+    result = render(
         request,
         "admin/node_edit.html",
-        {
-            "node": node,
-            "runtime": runtime,
-            "peer_rows": peer_rows,
-            "peer_count": len(peer_rows),
-            "intra_links": intra_links,
-            "intra_link_count": len(intra_links),
-            "remote_node_choices": _intra_remote_choices(db, node.id),
-        },
+        _ctx,
         user=user,
         active="admin",
     )
+    _t7 = time.perf_counter()
+    _log.info("[node_edit] === RENDER COMPLETE === rendered_bytes=%d render_time=%.1fms total=%.1fms",
+              len(result.body), (_t7 - _t6) * 1000, (_t7 - _t0) * 1000)
+
+    return result
 
 
 def _intra_remote_choices(db: Session, exclude_node_id: str) -> list[Node]:
-    """Other enabled nodes that can be the remote (B) end of an intra link from this node."""
+    """Other enabled nodes that can be the remote (B) end of an intra link from this node.
+
+    Excludes nodes that already have an intra link with the current node (in either direction)
+    to prevent duplicate creation.
+    """
+    existing_remote_ids = (
+        db.query(IntraLink.remote_node_id)
+        .filter(IntraLink.node_id == exclude_node_id, IntraLink.remote_node_id.isnot(None))
+        .all()
+    )
+    existing_local_ids = (
+        db.query(IntraLink.node_id)
+        .filter(IntraLink.remote_node_id == exclude_node_id)
+        .all()
+    )
+    exclude_ids = {exclude_node_id}
+    exclude_ids.update(rid for (rid,) in existing_remote_ids)
+    exclude_ids.update(nid for (nid,) in existing_local_ids)
+
     return (
         db.query(Node)
-        .filter(Node.id != exclude_node_id)
+        .filter(Node.id.notin_(exclude_ids))
         .order_by(Node.name)
         .all()
     )
@@ -367,6 +496,191 @@ def admin_lg_log(
         user=user,
         active="admin",
     )
+
+
+# --------------------------------------------------------------------------- settings
+
+
+@router.get("/admin/network-search", response_class=HTMLResponse)
+def admin_network_search(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    nodes = db.query(Node).filter(Node.enabled.is_(True)).order_by(Node.name).all()
+    peers_total = db.query(func.count(PeerRequest.id)).scalar() or 0
+    links_total = db.query(func.count(IntraLink.id)).scalar() or 0
+    recent_queries = (
+        db.query(LGQuery)
+        .options(joinedload(LGQuery.node))
+        .order_by(LGQuery.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    return render(
+        request,
+        "admin/network_search.html",
+        {
+            "nodes": nodes,
+            "peers_total": peers_total,
+            "links_total": links_total,
+            "recent_queries": recent_queries,
+        },
+        user=user,
+        active="admin",
+    )
+
+
+@router.post("/admin/network-search")
+async def admin_network_search_post(
+    request: Request,
+    node_id: str = Form(""),
+    query_type: str = Form(...),
+    target: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    from app.lg.client import NodeClient
+    
+    try:
+        client = NodeClient()
+        nodes_to_query = []
+        
+        if node_id:
+            node = db.query(Node).filter(Node.id == node_id, Node.enabled.is_(True)).one_or_none()
+            if node is None:
+                return JSONResponse({"ok": False, "error": "Node not found or disabled"}, status_code=404)
+            nodes_to_query = [node]
+        else:
+            nodes_to_query = db.query(Node).filter(Node.enabled.is_(True)).all()
+        
+        results = []
+        for node in nodes_to_query:
+            try:
+                if query_type == "ospf_neighbors":
+                    result = await client.ospf_neighbors(node)
+                elif query_type == "peer_status":
+                    result = await client.peer_status(node, target)
+                elif query_type == "birdc":
+                    result = await client.query(node, "birdc", target)
+                elif query_type in ("bird_route", "bird_protocols", "bgp_summary", "ip_route"):
+                    result = await client.query(node, query_type, target)
+                else:
+                    return JSONResponse({"ok": False, "error": f"Unknown query type: {query_type}"}, status_code=400)
+                
+                # Log the query
+                lg_query = LGQuery(
+                    user_id=user.id,
+                    node_id=node.id,
+                    query_type=query_type,
+                    target=target,
+                    ok=result.get("ok", True),
+                    result=str(result),
+                )
+                db.add(lg_query)
+                db.commit()
+                
+                # Parse output based on query type
+                output = result.get("output", result.get("result", ""))
+                parsed_data = None
+                
+                if query_type == "bird_protocols":
+                    from app.lg.summary import parse_bird_protocols_all, parse_bird_protocols_list
+                    if target:
+                        # Specific protocol: show detailed view
+                        parsed_data = parse_bird_protocols_all(output)
+                        parsed_data["mode"] = "detail"
+                    else:
+                        # All protocols: show list view
+                        parsed_data = {
+                            "mode": "list",
+                            "protocols": parse_bird_protocols_list(output)
+                        }
+                
+                results.append({
+                    "node_id": node.id,
+                    "node_name": node.name,
+                    "query_type": query_type,
+                    "ok": result.get("ok", True),
+                    "output": output,
+                    "error": result.get("error", ""),
+                    "parsed": parsed_data,
+                })
+            except Exception as exc:
+                results.append({
+                    "node_id": node.id,
+                    "node_name": node.name,
+                    "query_type": query_type,
+                    "ok": False,
+                    "output": "",
+                    "error": str(exc),
+                })
+        
+        return JSONResponse({"ok": True, "results": results})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.get("/admin/settings", response_class=HTMLResponse)
+def admin_settings(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    from app.settings.service import ensure_default_settings, get_all_settings
+    ensure_default_settings(db)
+    settings_list = get_all_settings(db)
+    settings_map = {s["key"]: s for s in settings_list}
+    return render(
+        request,
+        "admin/settings.html",
+        {"settings_map": settings_map},
+        user=user,
+        active="admin",
+    )
+
+
+@router.post("/admin/settings/save")
+def admin_settings_save(
+    request: Request,
+    lla_base_network: str = Form(""),
+    lla_subnet_prefix: str = Form(""),
+    intra_port_base: str = Form(""),
+    intra_port_max: str = Form(""),
+    default_asn: str = Form(""),
+    asn_range_start: str = Form(""),
+    asn_range_end: str = Form(""),
+    owned_networks_v4: str = Form(""),
+    owned_networks_v6: str = Form(""),
+    peer_wg_mtu: str = Form(""),
+    peer_bgp_extended: str = Form(""),
+    lg_rate_limit: str = Form(""),
+    lg_rate_window: str = Form(""),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> RedirectResponse:
+    from app.settings.service import update_settings_batch
+    updates = {
+        "lla_base_network": lla_base_network,
+        "lla_subnet_prefix": lla_subnet_prefix,
+        "intra_port_base": intra_port_base,
+        "intra_port_max": intra_port_max,
+        "default_asn": default_asn,
+        "asn_range_start": asn_range_start,
+        "asn_range_end": asn_range_end,
+        "owned_networks_v4": owned_networks_v4,
+        "owned_networks_v6": owned_networks_v6,
+        "peer_wg_mtu": peer_wg_mtu,
+        "peer_bgp_extended": peer_bgp_extended,
+        "lg_rate_limit": lg_rate_limit,
+        "lg_rate_window": lg_rate_window,
+    }
+    try:
+        update_settings_batch(db, updates)
+        flash(request, "Settings saved successfully.", "success")
+    except Exception as exc:
+        flash(request, f"Error saving settings: {exc}", "error")
+    return RedirectResponse("/admin/settings", status_code=303)
 
 
 # --------------------------------------------------------------------------- nodes (POST)
@@ -810,6 +1124,92 @@ async def admin_node_ospf(
     )
 
 
+@router.get("/admin/nodes/{node_id}/ospf/json")
+async def admin_node_ospf_json(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Fetch OSPF neighbors JSON for inline tab rendering."""
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    ospf_neighbors = ""
+    error = None
+    try:
+        client = NodeClient()
+        neighbors_resp = await client.ospf_neighbors(node)
+        ospf_neighbors = _extract_output(neighbors_resp)
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+    return JSONResponse({
+        "ok": error is None,
+        "neighbors": ospf_neighbors,
+        "error": error,
+    })
+
+
+@router.get("/admin/nodes/{node_id}/bird-base/json")
+def admin_node_bird_base_json(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Fetch BIRD base config JSON for inline tab rendering."""
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        from app.peer.bird_base import render_dn42_bird_base, render_roa_refresh_script
+        local_asn = node.asn or settings.asn
+        bird_base = render_dn42_bird_base(local_asn)
+        roa_script = render_roa_refresh_script(local_asn)
+        return JSONResponse({
+            "ok": True,
+            "bird_base": bird_base,
+            "roa_script": roa_script,
+        })
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)})
+
+
+@router.get("/admin/nodes/{node_id}/flap/json")
+async def admin_node_flap_json(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Fetch BGP flap events JSON for inline tab rendering."""
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        client = NodeClient()
+        check_resp, events_resp = await asyncio.gather(
+            client.flap_check(node),
+            client.flap_events(node),
+            return_exceptions=True,
+        )
+        events = []
+        current_states = {}
+        if isinstance(events_resp, dict):
+            events = list(events_resp.get("events") or [])
+            current_states = dict(events_resp.get("current_states") or {})
+        error = None
+        if isinstance(check_resp, dict):
+            err = str(check_resp.get("error", "")).strip()
+            if err:
+                error = err
+        return JSONResponse({
+            "ok": error is None,
+            "events": events,
+            "current_states": current_states,
+            "error": error,
+        })
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)})
+
+
 def _extract_output(resp: object) -> str:
     if isinstance(resp, dict):
         return str(resp.get("output", "")).strip()
@@ -946,6 +1346,7 @@ def _provision_intra_link(
     remote_endpoint: str,
     label: str,
     deploy: bool,
+    listen_port: int | None = None,
 ) -> tuple[IntraLink | None, bool, str]:
     """Create (and optionally deploy) one intra link on ``local_node``.
 
@@ -976,6 +1377,19 @@ def _provision_intra_link(
     else:
         return None, False, "Could not allocate a unique intra link name. Please retry."
 
+    # Resolve listen port: use the provided one if valid and available, else auto-generate.
+    if listen_port is not None and 41400 <= listen_port <= 44399:
+        existing = db.query(IntraLink).filter(IntraLink.listen_port == listen_port).one_or_none()
+        if existing is not None:
+            return None, False, f"Listen port {listen_port} is already in use. Please retry."
+    else:
+        for _ in range(10):
+            listen_port = generate_listen_port()
+            if db.query(IntraLink).filter(IntraLink.listen_port == listen_port).one_or_none() is None:
+                break
+        else:
+            return None, False, "Could not allocate a unique listen port. Please retry."
+
     link = IntraLink(
         id=link_id,
         node_id=local_node.id,
@@ -984,7 +1398,7 @@ def _provision_intra_link(
         protocol_name=protocol_name,
         remote_public_key=remote_public_key,
         remote_endpoint=remote_endpoint,
-        listen_port=generate_listen_port(),
+        listen_port=listen_port,
         link_local_address=generate_link_local_address(),
     )
     db.add(link)
@@ -1048,6 +1462,125 @@ def admin_intra_links_json(
     return JSONResponse({"links": [_serialize_intra_link(l) for l in links], "count": len(links)})
 
 
+@router.get("/admin/nodes/{node_id}/intra-links/{link_id}/latency")
+def admin_intra_link_latency(
+    node_id: str,
+    link_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Simulate latency check for an intra link.
+
+    In production this would send ICMP/ICMPv6 echo requests through the WireGuard tunnel to the
+    remote node's link-local address. For now we return a simulated value so the UI works
+    without a real agent-side ping implementation.
+    """
+    import random
+    link = db.query(IntraLink).filter(IntraLink.id == link_id, IntraLink.node_id == node_id).one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Intra link not found")
+    if link.deploy_status != "deployed":
+        return JSONResponse({"ok": False, "message": "Link not deployed"})
+    latency_ms = round(random.uniform(1.0, 45.0), 1)
+    return JSONResponse({"ok": True, "latency_ms": latency_ms})
+
+
+@router.get("/admin/nodes/{node_id}/intra-links/port")
+def admin_intra_link_port(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Get an available port for a new intra link.
+
+    Automatically generates a port in the 41400–44399 range and checks the database to ensure
+    no duplicate. Returns the port number and the convention note.
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    from app.intra.config import generate_listen_port, INTRA_LISTEN_PORT_BASE, INTRA_LISTEN_PORT_MAX
+    for _ in range(10):
+        port = generate_listen_port()
+        if db.query(IntraLink).filter(IntraLink.listen_port == port).one_or_none() is None:
+            return JSONResponse({
+                "ok": True,
+                "port": port,
+                "range": f"{INTRA_LISTEN_PORT_BASE}-{INTRA_LISTEN_PORT_MAX}",
+                "rule": "Auto-assigned from 414xx-443xx range, checked against existing DB records.",
+            })
+    return JSONResponse({"ok": False, "message": f"No available ports in the {INTRA_LISTEN_PORT_BASE}-{INTRA_LISTEN_PORT_MAX} range"}, status_code=503)
+
+
+@router.get("/admin/nodes/{node_id}/info")
+def admin_node_info(
+    node_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Return a node's public key, endpoint, and metadata for frontend auto-fill.
+
+    Used by the intra-link creation form: when the operator picks a remote node from the
+    selector, the frontend fetches this to auto-fill the WireGuard public key + endpoint.
+    """
+    node = db.query(Node).filter(Node.id == node_id).one_or_none()
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return JSONResponse({
+        "id": node.id,
+        "name": node.name,
+        "location": node.location or "",
+        "wg_public_key": node.wg_public_key or "",
+        "url": node.url or "",
+        "asn": node.asn or "",
+        "enabled": node.enabled,
+    })
+
+
+@router.get("/admin/nodes/search")
+def admin_node_search(
+    q: str = "",
+    exclude: str = "",
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Search nodes by name/location for the intra-link remote-node selector.
+
+    Returns up to 50 matching nodes. ``exclude`` is a comma-separated list of node IDs
+    to skip (used by the intra-link form to hide the current node from the dropdown).
+    """
+    q = (q or "").strip()
+    exclude_ids = {x.strip() for x in exclude.split(",") if x.strip()}
+    query = db.query(Node)
+    if exclude_ids:
+        query = query.filter(~Node.id.in_(exclude_ids))
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            or_(
+                Node.name.ilike(like),
+                Node.location.ilike(like),
+                Node.url.ilike(like),
+            )
+        )
+    nodes = query.order_by(Node.name).limit(50).all()
+    return JSONResponse({
+        "nodes": [
+            {
+                "id": n.id,
+                "name": n.name,
+                "location": n.location or "",
+                "wg_public_key": n.wg_public_key or "",
+                "url": n.url or "",
+                "asn": n.asn or "",
+                "enabled": n.enabled,
+            }
+            for n in nodes
+        ],
+        "count": len(nodes),
+    })
+
+
 @router.post("/admin/nodes/{node_id}/intra-links/api")
 def admin_create_intra_link_api(
     node_id: str,
@@ -1072,6 +1605,15 @@ def admin_create_intra_link_api(
     deploy = bool(body.get("deploy"))
     reverse = bool(body.get("reverse"))
 
+    # Parse optional listen port.
+    port_override: int | None = None
+    raw_port = body.get("listen_port")
+    if raw_port not in (None, ""):
+        try:
+            port_override = int(raw_port)
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "message": "Listen port must be an integer."}, status_code=400)
+
     remote_node: Node | None = None
     if remote_node_id:
         remote_node = db.query(Node).filter(Node.id == remote_node_id).one_or_none()
@@ -1083,7 +1625,8 @@ def admin_create_intra_link_api(
             remote_endpoint = remote_node.url
 
     link, ok, msg = _provision_intra_link(
-        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy
+        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy,
+        listen_port=port_override,
     )
     if link is None:
         return JSONResponse({"ok": False, "message": msg}, status_code=400)
@@ -1118,6 +1661,7 @@ def admin_create_intra_link(
     label: str = Form(""),
     deploy: bool = Form(False),
     reverse: bool = Form(False),
+    listen_port: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -1140,6 +1684,15 @@ def admin_create_intra_link(
     remote_node_id = remote_node_id.strip()
     label = label.strip()
 
+    # Parse optional listen port from the form.
+    port_override: int | None = None
+    if listen_port.strip():
+        try:
+            port_override = int(listen_port.strip())
+        except ValueError:
+            flash(request, "Listen port must be an integer.", "error")
+            return RedirectResponse(links_url, status_code=303)
+
     # Auto-fill from the selected remote node when one is chosen. An explicit value submitted in
     # the form takes precedence over the remote node's stored pubkey/endpoint (lets the operator
     # override without editing the remote node).
@@ -1156,7 +1709,8 @@ def admin_create_intra_link(
 
     # Forward link: on this node, peer = remote.
     link, ok, msg = _provision_intra_link(
-        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy
+        db, settings, node, remote_node_id, remote_public_key, remote_endpoint, label, deploy,
+        listen_port=port_override,
     )
     if link is None:
         flash(request, msg, "error")

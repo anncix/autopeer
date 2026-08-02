@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Peer lifecycle operations shared by the web routes and the Telegram bot endpoints."""
 
 import logging

@@ -1,91 +1,393 @@
 {% extends "base.html" %}
-{% from "macros.html" import page_header, badge %}
 {% block title %}Nodes · {{ settings.app_name }}{% endblock %}
 {% block content %}
 
-{{ page_header("Nodes", "Live status of all nodes in the " ~ settings.app_name ~ " network.", i18n_key="nodes.title", i18n_subtitle_key="nodes.subtitle", i18n_subtitle_params={"name": settings.app_name}) }}
+<header class="nodes-section-header">
+  <div class="nodes-heading">
+    <span class="nodes-kicker" data-i18n="home.dn42_section">DN42</span>
+    <h1 class="nodes-heading-title" data-i18n="home.bgp_nodes">BGP 网络节点</h1>
+    <p class="nodes-heading-desc" data-i18n="home.pick_node_desc">选择一个 BGP 路由器以建立对等连接</p>
+  </div>
+</header>
 
-<div class="card nodes-summary">
-  <div class="nodes-summary-stats">
-    <div class="nodes-stat">
-      <span class="nodes-stat-value">{{ nodes_online }}</span>
-      <span class="nodes-stat-label" data-i18n="nodes.online_now">Online now</span>
+<div class="nodes-toolbar">
+  <div class="nodes-toolbar-left">
+    <div class="nodes-search">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="nodes-search-input" placeholder="按名称或 IP 地址搜索..." data-i18n-placeholder="home.nodes_search_placeholder">
     </div>
-    <div class="nodes-stat-divider"></div>
-    <div class="nodes-stat">
-      <span class="nodes-stat-value">{{ nodes_total }}</span>
-      <span class="nodes-stat-label" data-i18n="nodes.total_nodes">Total nodes</span>
-    </div>
-    <div class="nodes-stat-divider"></div>
-    <div class="nodes-stat">
-      <span class="nodes-stat-value">{{ nodes_enabled }}</span>
-      <span class="nodes-stat-label" data-i18n="nodes.enabled">Enabled</span>
-    </div>
-    <div class="nodes-stat-divider"></div>
-    <div class="nodes-stat">
-      <span class="nodes-stat-value">{{ nodes_online }}/{{ nodes_total }}</span>
-      <span class="nodes-stat-label" data-i18n="nodes.online_rate">Online rate</span>
+  </div>
+  <div class="nodes-toolbar-right">
+    <div class="nodes-view-toggle">
+      <button class="btn btn-sm btn-secondary view-btn" data-view="list" title="列表视图" data-i18n-title="home.list_view">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <button class="btn btn-sm btn-primary view-btn is-active" data-view="grid" title="网格视图" data-i18n-title="home.grid_view">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      </button>
     </div>
   </div>
 </div>
 
-{% if nodes %}
-<div class="node-grid">
-  {% for node in nodes %}
-  {% set rt = node_runtime[node.id] %}
-  <a href="/portal/new?node_id={{ node.id }}" class="node-card-link">
-    <div class="node-card {% if rt.online %}node-online{% else %}node-offline{% endif %}{% if not node.enabled %} node-disabled{% endif %}">
-      <div class="node-card-header">
-        <div class="node-info">
-          <span class="node-name">{{ node.name }}</span>
-          {% if node.location %}<span class="node-location">{{ node.location }}</span>{% endif %}
+{% if nodes_with_region %}
+<div class="nodes-filters">
+  <div class="nodes-filter-group" data-filter-group="region">
+    {% set region_counts = {} %}
+    {% for node, region in nodes_with_region %}
+      {% set _ = region_counts.update({region: (region_counts.get(region) or 0) + 1}) %}
+    {% endfor %}
+    <button class="filter-chip is-active" data-region="all">
+      <span data-i18n="home.filter_all">全部</span>
+      <span class="chip-count">({{ nodes_with_region|length }})</span>
+    </button>
+    <button class="filter-chip" data-region="asia">
+      <span data-i18n="home.filter_asia">东亚</span>
+      {% if region_counts.get('asia') %}<span class="chip-count">({{ region_counts['asia'] }})</span>{% endif %}
+    </button>
+    <button class="filter-chip" data-region="southeast-asia">
+      <span data-i18n="home.filter_sea">东南亚</span>
+      {% if region_counts.get('southeast-asia') %}<span class="chip-count">({{ region_counts['southeast-asia'] }})</span>{% endif %}
+    </button>
+    <button class="filter-chip" data-region="europe">
+      <span data-i18n="home.filter_europe">欧洲</span>
+      {% if region_counts.get('europe') %}<span class="chip-count">({{ region_counts['europe'] }})</span>{% endif %}
+    </button>
+    <button class="filter-chip" data-region="north-america">
+      <span data-i18n="home.filter_na">北美洲</span>
+      {% if region_counts.get('north-america') %}<span class="chip-count">({{ region_counts['north-america'] }})</span>{% endif %}
+    </button>
+    <button class="filter-chip" data-region="oceania">
+      <span data-i18n="home.filter_oceania">太平洋与大洋洲</span>
+      {% if region_counts.get('oceania') %}<span class="chip-count">({{ region_counts['oceania'] }})</span>{% endif %}
+    </button>
+    <button class="filter-chip" data-region="other">
+      <span data-i18n="home.filter_other">其他地区</span>
+      {% if region_counts.get('other') %}<span class="chip-count">({{ region_counts['other'] }})</span>{% endif %}
+    </button>
+  </div>
+</div>
+
+<div class="nodes-container" id="nodes-container">
+  <!-- Grid view: block cards -->
+  <div class="node-grid iedon-grid" id="node-grid-view">
+    {% for node, region in nodes_with_region %}
+    {% set rt = node_runtime[node.id] %}
+    {% set stats = node_peer_stats.get(node.id, {"total": 0, "deployed": 0}) %}
+    {% set tunnels = node_tunnel_types.get(node.id, []) %}
+    {% set capacity = 200 %}
+    {% set deployed = stats.get("deployed", 0) %}
+    {% set percent = ((deployed / capacity) * 100)|int %}
+    <div class="node-block-card"
+         data-node-name="{{ node.name|lower }}"
+         data-node-location="{{ (node.location or '')|lower }}"
+         data-node-asn="{{ (node.asn or '')|lower }}"
+         data-node-region="{{ region }}"
+         data-node-online="{{ 'online' if rt.online else 'offline' }}">
+      <div class="block-card-header">
+        <div class="block-card-avatar block-avatar-{{ region }}">
+          <span class="block-flag">{% if region == 'asia' %}🌏{% elif region == 'southeast-asia' %}🌴{% elif region == 'europe' %}🏰{% elif region == 'north-america' %}🗽{% elif region == 'oceania' %}🏝️{% else %}🌐{% endif %}</span>
+          <span class="block-status-dot {% if rt.online %}dot-online{% else %}dot-offline{% endif %}"></span>
         </div>
-        <div class="node-status">
-          {% if rt.online %}
-            <span class="status-dot dot-online"></span>
-            <span class="status-text" data-i18n="home.online">online</span>
-          {% else %}
-            <span class="status-dot dot-offline"></span>
-            <span class="status-text" data-i18n="home.offline">offline</span>
-          {% endif %}
+        <div class="block-card-title">
+          <span class="block-name">{{ node.name }}</span>
+          <div class="block-sub">
+            {% if node.asn %}<span class="block-asn mono">AS{{ node.asn }}</span>{% endif %}
+            <span class="block-state {% if node.enabled %}is-open{% else %}is-closed{% endif %}" data-i18n="{% if node.enabled %}home.open_state{% else %}home.closed_state{% endif %}">{% if node.enabled %}{{ '开放' }}{% else %}{{ '关闭' }}{% endif %}</span>
+          </div>
+        </div>
+        <div class="block-card-actions">
+          <button class="block-btn row-copy" type="button" data-node-name="{{ node.name }}" data-node-url="{{ node.url or '' }}" data-node-ipv4="{{ node.dn42_ipv4 or '' }}" data-node-ipv6="{{ node.dn42_ipv6 or '' }}" title="复制路由器信息" data-i18n-title="home.copy_node_info">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <a href="/portal/new?node_id={{ node.id }}" class="block-btn block-btn-primary" title="连接" data-i18n-title="home.connect">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
         </div>
       </div>
 
-      <div class="node-card-body">
-        <div class="node-meta">
-          {% if node.asn %}<span class="meta-item"><span class="meta-label" data-i18n="common.asn">ASN</span> {{ node.asn }}</span>{% endif %}
-          {% if node.dn42_ipv4 %}<span class="meta-item mono">{{ node.dn42_ipv4 }}</span>{% endif %}
-          {% if node.dn42_ipv6 %}<span class="meta-item mono">{{ node.dn42_ipv6 }}</span>{% endif %}
+      <div class="block-card-capacity">
+        <div class="cap-header">
+          <span class="cap-label" data-i18n="home.session_capacity">会话容量</span>
+          <span class="cap-values"><span class="capacity-current">{{ deployed }}</span><span class="capacity-sep">/</span><span class="capacity-max">{{ capacity }}</span></span>
         </div>
+        <div class="cap-bar">
+          <div class="cap-fill" style="width: {{ [percent, 100]|min }}%;"></div>
+        </div>
+      </div>
 
-        {% if rt.online and rt.system_summary %}
-        <div class="node-summary">{{ rt.system_summary }}</div>
-        {% elif not rt.online %}
-        <div class="node-summary faint">
-          {% if rt.last_seen_at %}
-            <span data-i18n="home.last_seen" data-i18n-param-time="{{ rt.last_seen_at.strftime('%Y-%m-%d %H:%M') }}">Last seen {{ rt.last_seen_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
-          {% else %}
-            <span data-i18n="home.no_heartbeat">No heartbeat yet</span>
-          {% endif %}
-        </div>
+      <div class="block-card-tunnels">
+        {% if 'wireguard' in tunnels or not tunnels %}
+        <span class="tunnel-chip tunnel-wg">WireGuard</span>
         {% endif %}
+        {% for tt in tunnels %}
+          {% if tt == 'gre_ipv4' %}
+          <span class="tunnel-chip tunnel-gre">GRE (IPv4)</span>
+          {% elif tt == 'gre_ipv6' %}
+          <span class="tunnel-chip tunnel-gre6">GRE (IPv6)</span>
+          {% elif tt == 'direct' %}
+          <span class="tunnel-chip tunnel-direct" data-i18n="home.direct_ethernet">直连以太网</span>
+          {% elif tt == 'wireguard' %}
+          {% else %}
+          <span class="tunnel-chip">{{ tt }}</span>
+          {% endif %}
+        {% endfor %}
       </div>
 
-      {% if node.url %}
-      <div class="node-card-footer">
-        <span class="node-url mono">{{ node.url }}</span>
-        {% if node.enabled %}
-          <span class="badge badge-ok" data-i18n="status.approved">enabled</span>
-        {% else %}
-          <span class="badge badge-bad" data-i18n="status.disabled">disabled</span>
-        {% endif %}
+      <div class="block-card-desc">
+        <span class="block-desc-icon">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </span>
+        <span class="block-desc-text">{{ node.location or "—" }}</span>
       </div>
-      {% endif %}
     </div>
-  </a>
-  {% endfor %}
+    {% endfor %}
+  </div>
+
+  <!-- List view: horizontal row cards -->
+  <div class="node-list-view" id="node-list-view" style="display:none;">
+    {% for node, region in nodes_with_region %}
+    {% set rt = node_runtime[node.id] %}
+    {% set stats = node_peer_stats.get(node.id, {"total": 0, "deployed": 0}) %}
+    {% set tunnels = node_tunnel_types.get(node.id, []) %}
+    {% set capacity = 200 %}
+    {% set deployed = stats.get("deployed", 0) %}
+    {% set percent = ((deployed / capacity) * 100)|int %}
+    <div class="node-row-card"
+         data-node-name="{{ node.name|lower }}"
+         data-node-location="{{ (node.location or '')|lower }}"
+         data-node-asn="{{ (node.asn or '')|lower }}"
+         data-node-region="{{ region }}"
+         data-node-online="{{ 'online' if rt.online else 'offline' }}">
+      <div class="row-accent row-accent-{{ region }}"></div>
+      <div class="row-body">
+        <div class="row-left">
+          <div class="row-flag">
+            <span class="block-flag">{% if region == 'asia' %}🌏{% elif region == 'southeast-asia' %}🌴{% elif region == 'europe' %}🏰{% elif region == 'north-america' %}🗽{% elif region == 'oceania' %}🏝️{% else %}🌐{% endif %}</span>
+            <span class="block-status-dot {% if rt.online %}dot-online{% else %}dot-offline{% endif %}"></span>
+          </div>
+          <div class="row-main">
+            <div class="row-title">
+              <span class="row-node-name">{{ node.name }}</span>
+              {% if node.asn %}<span class="row-asn">AS{{ node.asn }}</span>{% endif %}
+              <span class="row-state {% if node.enabled %}is-open{% else %}is-closed{% endif %}" data-i18n="{% if node.enabled %}home.open_state{% else %}home.closed_state{% endif %}">{% if node.enabled %}开放{% else %}关闭{% endif %}</span>
+            </div>
+            <div class="row-sub">
+              <span>{{ node.location or "—" }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row-mid">
+          <div class="row-capacity">
+            <span class="capacity-current">{{ deployed }}</span><span class="capacity-sep">/</span><span class="capacity-max">{{ capacity }}</span>
+          </div>
+          <div class="row-bar">
+            <div class="row-bar-fill" style="width: {{ [percent, 100]|min }}%;"></div>
+          </div>
+        </div>
+
+        <div class="row-right">
+          <div class="row-tunnels">
+            {% if 'wireguard' in tunnels or not tunnels %}
+            <span class="tunnel-chip tunnel-wg">WireGuard</span>
+            {% endif %}
+            {% for tt in tunnels %}
+              {% if tt == 'gre_ipv4' %}
+              <span class="tunnel-chip tunnel-gre">GRE</span>
+              {% elif tt == 'gre_ipv6' %}
+              <span class="tunnel-chip tunnel-gre6">Ip6gre</span>
+              {% elif tt == 'direct' %}
+              <span class="tunnel-chip tunnel-direct" data-i18n="home.direct_ethernet">直连</span>
+              {% elif tt == 'wireguard' %}
+              {% else %}
+              <span class="tunnel-chip">{{ tt }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <div class="row-actions-btns">
+            <button class="block-btn row-copy" type="button" data-node-name="{{ node.name }}" data-node-url="{{ node.url or '' }}" data-node-ipv4="{{ node.dn42_ipv4 or '' }}" data-node-ipv6="{{ node.dn42_ipv6 or '' }}" title="复制路由器信息" data-i18n-title="home.copy_node_info">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <a href="/portal/new?node_id={{ node.id }}" class="block-btn block-btn-primary" title="连接" data-i18n-title="home.connect">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="nodes-empty" id="nodes-empty" style="display:none;">
+    <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <p data-i18n="home.no_nodes_found">未找到节点</p>
+    <span class="muted" data-i18n="home.no_nodes_found_desc">尝试调整搜索条件或筛选器。</span>
+  </div>
 </div>
 {% else %}
-<div class="empty-state" data-i18n="nodes.no_nodes">No nodes are configured yet.</div>
+<div class="nodes-empty">
+  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  <p data-i18n="nodes.no_nodes">暂无节点</p>
+</div>
 {% endif %}
+
+<script>
+(function() {
+  var searchInput = document.getElementById('nodes-search-input');
+  var gridView = document.getElementById('node-grid-view');
+  var listView = document.getElementById('node-list-view');
+  var emptyState = document.getElementById('nodes-empty');
+  var viewBtns = document.querySelectorAll('.view-btn');
+  var filterChips = document.querySelectorAll('.filter-chip');
+
+  function currentView() {
+    var activeBtn = document.querySelector('.view-btn.is-active');
+    return activeBtn ? activeBtn.getAttribute('data-view') : 'grid';
+  }
+
+  function applyFilters() {
+    var query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    var activeChip = document.querySelector('.filter-chip.is-active');
+    var activeRegion = activeChip ? activeChip.getAttribute('data-region') : 'all';
+    var view = currentView();
+    var items = view === 'grid'
+      ? document.querySelectorAll('#node-grid-view [data-node-name]')
+      : document.querySelectorAll('#node-list-view .node-row-card[data-node-name]');
+    var visibleCount = 0;
+
+    items.forEach(function(item) {
+      var name = item.getAttribute('data-node-name') || '';
+      var location = item.getAttribute('data-node-location') || '';
+      var asn = item.getAttribute('data-node-asn') || '';
+      var region = item.getAttribute('data-node-region') || '';
+
+      var matchesQuery = !query || name.indexOf(query) !== -1 ||
+                         location.indexOf(query) !== -1 ||
+                         asn.indexOf(query) !== -1;
+      var matchesRegion = activeRegion === 'all' || region === activeRegion;
+
+      if (matchesQuery && matchesRegion) {
+        item.style.display = '';
+        visibleCount++;
+      } else {
+        item.style.display = 'none';
+      }
+    });
+
+    if (emptyState) {
+      emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', applyFilters);
+  }
+
+  function showView(view, animate) {
+    var showing, hiding;
+    if (view === 'grid') {
+      showing = gridView;
+      hiding = listView;
+    } else {
+      showing = listView;
+      hiding = gridView;
+    }
+
+    // Hide the other view and clean up its animation class
+    hiding.style.display = 'none';
+    hiding.classList.remove('is-entering');
+
+    // Show the target view
+    showing.style.display = view === 'grid' ? 'grid' : 'block';
+
+    // Trigger enter animation (skip on initial load / bfcache restore)
+    if (animate) {
+      showing.classList.remove('is-entering');
+      // Force reflow so the animation restarts cleanly
+      void showing.offsetWidth;
+      showing.classList.add('is-entering');
+      // Clean up after animation completes (max delay 0.28s + duration 0.35s ≈ 630ms)
+      setTimeout(function() {
+        showing.classList.remove('is-entering');
+      }, 650);
+    }
+  }
+
+  viewBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      viewBtns.forEach(function(b) {
+        b.classList.remove('is-active', 'btn-primary');
+        b.classList.add('btn-secondary');
+      });
+      btn.classList.add('is-active', 'btn-primary');
+      btn.classList.remove('btn-secondary');
+      showView(btn.getAttribute('data-view'), true);
+      applyFilters();
+    });
+  });
+
+  // Ensure initial view matches the active button (no animation on first load)
+  function syncView() {
+    showView(currentView(), false);
+    applyFilters();
+  }
+  syncView();
+
+  // Re-sync when page is restored from bfcache
+  window.addEventListener('pageshow', function(event) {
+    if (event.persisted) {
+      syncView();
+    }
+  });
+
+  filterChips.forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      filterChips.forEach(function(c) { c.classList.remove('is-active'); });
+      chip.classList.add('is-active');
+      applyFilters();
+    });
+  });
+
+  // Copy router info button
+  document.querySelectorAll('.row-copy').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var name = btn.getAttribute('data-node-name') || '';
+      var url = btn.getAttribute('data-node-url') || '';
+      var ipv4 = btn.getAttribute('data-node-ipv4') || '';
+      var ipv6 = btn.getAttribute('data-node-ipv6') || '';
+      var lines = [name];
+      if (url) lines.push(url);
+      if (ipv4) lines.push('IPv4: ' + ipv4);
+      if (ipv6) lines.push('IPv6: ' + ipv6);
+      var text = lines.join('  ·  ');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          flashCopy(btn);
+        }).catch(function() {
+          fallbackCopy(text, btn);
+        });
+      } else {
+        fallbackCopy(text, btn);
+      }
+    });
+  });
+
+  function fallbackCopy(text, btn) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); flashCopy(btn); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function flashCopy(btn) {
+    btn.classList.add('is-copied');
+    setTimeout(function() {
+      btn.classList.remove('is-copied');
+    }, 1200);
+  }
+})();
+</script>
 {% endblock %}

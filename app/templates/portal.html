@@ -3,12 +3,17 @@
 {% block title %}My Peers · {{ settings.app_name }}{% endblock %}
 {% block content %}
 <div class="card">
-  {{ page_header("My Peers", "Signed in as AS" ~ (user.primary_asn | replace("AS", "", 1)) ~ ". You have " ~ peer_count ~ " peer" ~ ("" if peer_count == 1 else "s") ~ ".", i18n_key="portal.title", i18n_subtitle_key="portal.subtitle", i18n_subtitle_params={"asn": (user.primary_asn | replace("AS", "", 1)), "count": peer_count}) }}
-  <div class="edit-actions">
-    <a class="btn btn-primary" href="/portal/new" data-i18n="portal.new_peer">
-      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>New Peer</span>
-    </a>
+  <div class="page-header-row">
+    <div class="page-header-left">
+      <h1 data-i18n="portal.title">My Peers</h1>
+      <p class="muted" data-i18n="portal.subtitle" data-i18n-param-asn="{{ user.primary_asn | replace('AS', '', 1) }}" data-i18n-param-count="{{ peer_count }}">Signed in as AS{asn}. You have {count} peer(s).</p>
+    </div>
+    <div class="page-header-actions">
+      <a class="btn btn-primary btn-sm" href="/portal/new" data-i18n="portal.new_peer">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span data-i18n="portal.new_peer">New Peer</span>
+      </a>
+    </div>
   </div>
 </div>
 

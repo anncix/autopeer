@@ -1,7 +1,7 @@
 import json
 import secrets
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -13,8 +13,8 @@ from app.peer.validation import normalize_asn_number
 def create_challenge(
     db: Session,
     purpose: str,
-    telegram_user_id: str | None = None,
-    telegram_chat_id: str | None = None,
+    telegram_user_id: Optional[str] = None,
+    telegram_chat_id: Optional[str] = None,
     ttl_seconds: int = 600,
 ) -> AuthChallenge:
     challenge = AuthChallenge(
@@ -22,7 +22,7 @@ def create_challenge(
         purpose=purpose,
         telegram_user_id=telegram_user_id,
         telegram_chat_id=telegram_chat_id,
-        expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
     )
     db.add(challenge)
     db.commit()
@@ -40,8 +40,8 @@ def consume_challenge(db: Session, token: str, purpose: str) -> AuthChallenge:
         raise ValueError("Auth challenge was already used")
     expires_at = challenge.expires_at
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at < datetime.now(UTC):
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
         raise ValueError("Auth challenge has expired")
     challenge.consumed_at = utcnow()
     db.commit()
@@ -50,7 +50,7 @@ def consume_challenge(db: Session, token: str, purpose: str) -> AuthChallenge:
 
 
 def _upsert_user_for_asn(
-    db: Session, asn: str, settings: Settings, *, first_email: str | None = None
+    db: Session, asn: str, settings: Settings, *, first_email: Optional[str] = None
 ) -> User:
     """Create or update the ``User`` for ``asn`` and (re)compute admin status; return the User.
 
@@ -113,7 +113,7 @@ def bind_telegram(
     user: User,
     telegram_user_id: str,
     telegram_chat_id: str,
-    username: str | None = None,
+    username: Optional[str] = None,
 ) -> TelegramBinding:
     binding = (
         db.query(TelegramBinding)
@@ -138,7 +138,7 @@ def bind_telegram(
     return binding
 
 
-def get_user_by_telegram(db: Session, telegram_user_id: str) -> User | None:
+def get_user_by_telegram(db: Session, telegram_user_id: str) -> Optional[User]:
     return (
         db.query(User)
         .join(TelegramBinding, TelegramBinding.user_id == User.id)

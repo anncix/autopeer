@@ -1,6 +1,7 @@
+from __future__ import annotations
 import asyncio
 import secrets
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,7 +48,7 @@ class VerifyRequest(BaseModel):
 
     telegram_user_id: str = Field(pattern=r"^\d{1,20}$")
     telegram_chat_id: str = Field(pattern=r"^-?\d{1,20}$")
-    username: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_]{1,64}$")
+    username: Optional[str] = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_]{1,64}$")
     params: str = Field(min_length=1, max_length=8192)
     signature: str = Field(min_length=1, max_length=8192)
 

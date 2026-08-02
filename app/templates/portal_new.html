@@ -16,16 +16,16 @@
     <label class="field" data-i18n="new_peer.your_wg_pubkey">Your WireGuard public key
       <input name="wg_public_key" placeholder="44-char base64 key" required>
     </label>
-    <label class="field" data-i18n="new_peer.your_endpoint">Your WireGuard endpoint <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="new_peer.your_endpoint_opt">Your WireGuard endpoint (optional)
       <input name="endpoint" placeholder="host:port (blank = peer dials us)">
     </label>
-    <label class="field" data-i18n="new_peer.dn42_ipv4">DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="new_peer.dn42_ipv4_opt">DN42 IPv4 (optional)
       <input name="peer_dn42_ipv4" placeholder="172.20.x.y or 172.20.x.y/32">
     </label>
-    <label class="field" data-i18n="new_peer.dn42_ipv6">DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="new_peer.dn42_ipv6_opt">DN42 IPv6 (optional)
       <input name="peer_dn42_ipv6" placeholder="fd00::1 or fd00::1/128">
     </label>
-    <label class="field" data-i18n="new_peer.link_local">Link-local address <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="new_peer.link_local_opt">Link-local address (optional)
       <input name="peer_link_address" placeholder="{{ default_peer_address or 'fe80::99' }} or a ULA">
     </label>
     <label class="field" data-i18n="new_peer.mtu">WireGuard MTU

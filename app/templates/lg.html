@@ -1,37 +1,207 @@
 {% extends "base.html" %}
-{% from "macros.html" import page_header, code_block %}
+{% from "macros.html" import code_block %}
 {% block title %}Looking Glass · {{ settings.app_name }}{% endblock %}
 {% block content %}
-<div class="card">
-  {{ page_header("Looking Glass", "Run ping, traceroute, mtr, and route queries from any node.", i18n_key="lg.title", i18n_subtitle_key="lg.subtitle") }}
-  {% if nodes %}
-  <form id="lg-form" method="post" action="/lg" class="form-grid">
-    <label class="field" data-i18n="lg.node">Node
-      <select name="node_id">
-        {% for node in nodes %}
-          <option value="{{ node.id }}">{{ node.name }}{% if node.location %} — {{ node.location }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="field" data-i18n="lg.query">Query
-      <select name="query_type" id="lg-query-type">
-        {% for q in ["ping", "trace", "mtr", "route", "bird"] %}
-          <option value="{{ q }}" {% if last_query == q %}selected{% endif %}>{% if q == "trace" %}traceroute{% elif q == "bird" %}BIRD protocol{% else %}{{ q }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="field" data-i18n="lg.target">Target
-      <input name="target" id="lg-target" value="{{ last_target or '' }}"
-             data-i18n-placeholder="lg.target_placeholder"
-             placeholder="IP, hostname, or prefix — e.g. 172.20.0.1, wiki.dn42, 1.1.1.0/24">
-    </label>
-    <button type="submit" class="btn-primary" data-i18n="lg.run_query">Run query</button>
-  </form>
-  <div id="lg-result" class="lg-result">
-    {% if lg_result %}{{ code_block(lg_result, ok=lg_ok) }}{% endif %}
+<div class="lg-layout">
+  <!-- Node selector sidebar -->
+  <aside class="lg-sidebar">
+    <div class="lg-sidebar-header">
+      <span class="lg-sidebar-title" data-i18n="lg.select_node">Select Node</span>
+    </div>
+    <div class="lg-node-list" id="lg-node-list">
+      {% for node in nodes %}
+      <button type="button" class="lg-node-item{% if loop.first %} active{% endif %}"
+              data-node-id="{{ node.id }}"
+              data-node-name="{{ node.name }}"
+              data-node-location="{{ node.location or '' }}">
+        <span class="lg-node-dot {% if node.runtime and node.runtime.get('online') %}online{% else %}offline{% endif %}"></span>
+        <span class="lg-node-name">{{ node.name }}</span>
+        {% if node.location %}
+        <span class="lg-node-loc">{{ node.location }}</span>
+        {% endif %}
+      </button>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <!-- Main content area -->
+  <div class="lg-main">
+    {% if nodes %}
+    <!-- Node info header -->
+    <div class="lg-node-header" id="lg-node-header">
+      <div class="lg-node-info">
+        <h1 class="lg-node-title" id="lg-current-name">{{ nodes[0].name }}</h1>
+        {% if nodes[0].location %}
+        <span class="lg-node-location" id="lg-current-location">{{ nodes[0].location }}</span>
+        {% endif %}
+      </div>
+      <div class="lg-node-status">
+        <span class="lg-status-pill online" id="lg-current-status">Online</span>
+      </div>
+    </div>
+
+    <!-- Query form -->
+    <form id="lg-form" method="post" action="/lg" class="lg-query-form" data-query-form data-ajax-enabled="1">
+      <input type="hidden" id="lg-node" name="node_id" value="{{ nodes[0].id }}">
+      <div class="lg-query-row">
+        <div class="lg-query-type">
+          <select id="lg-query-type" name="query_type">
+            <option value="ping" {% if last_query == "ping" %}selected{% endif %} data-i18n="lg.ping">Ping</option>
+            <option value="trace" {% if last_query == "trace" %}selected{% endif %} data-i18n="lg.trace">Traceroute</option>
+            <option value="bird_protocols" {% if last_query == "bird_protocols" %}selected{% endif %} data-i18n="lg.bird_protocols">BIRD (BGP)</option>
+            <option value="bird_route" {% if last_query == "bird_route" %}selected{% endif %} data-i18n="lg.bird_route">BIRD Route</option>
+          </select>
+        </div>
+        <div class="lg-query-target">
+          <input id="lg-target" name="target" value="{{ last_target or '' }}"
+                 data-i18n-placeholder="lg.target_placeholder"
+                 placeholder="IP, prefix, ASN or protocol name">
+        </div>
+        <button type="submit" class="lg-query-submit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+      </div>
+      <div class="lg-help" id="lg-help">
+        <span class="lg-help-text" id="lg-help-text">Pick a query type to see the accepted target formats.</span>
+      </div>
+    </form>
+
+    <!-- Result area -->
+    <div id="lg-result" class="lg-result">
+      {% if lg_result %}
+        {% if lg_parsed %}
+          <div id="lg-parsed-view">{{ lg_parsed|tojson|safe }}</div>
+          <div id="lg-parsed-container"></div>
+          <details class="lg-raw-toggle">
+            <summary data-i18n="lg.view_raw">Raw BIRD output</summary>
+            {{ code_block(lg_result, ok=lg_ok) }}
+          </details>
+        {% else %}
+          {{ code_block(lg_result, ok=lg_ok) }}
+        {% endif %}
+      {% else %}
+        <div class="lg-empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <p>Select a query type and target above, then run a query.</p>
+        </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="lg-empty-state">
+      <p data-i18n="lg.no_nodes">No looking-glass nodes are configured yet.</p>
+    </div>
+    {% endif %}
   </div>
-  {% else %}
-  <div class="empty-state" data-i18n="lg.no_nodes">No looking-glass nodes are configured yet.</div>
-  {% endif %}
 </div>
+
+<script>
+(function () {
+  var helpMap = {
+    "ping": "Enter an IP or hostname (e.g. wiki.dn42, 172.20.0.1).",
+    "trace": "Enter an IP or hostname.",
+    "bird_protocols": "Leave empty to list all BIRD protocols, or enter a protocol name (e.g. ibgp_xxx) for a detailed BGP session view.",
+    "bird_route": "Enter an IP, CIDR, or ASN to filter the BIRD route table.",
+  };
+  var placeholderMap = {
+    "ping": "wiki.dn42 or 172.20.0.1",
+    "trace": "wiki.dn42 or 172.20.0.1",
+    "bird_protocols": "(empty for all) or ibgp_xxx",
+    "bird_route": "172.24.0.1 or AS4242430001",
+  };
+
+  // Node selection handling
+  var nodeItems = document.querySelectorAll(".lg-node-item");
+  var nodeInput = document.getElementById("lg-node");
+  var currentName = document.getElementById("lg-current-name");
+  var currentLocation = document.getElementById("lg-current-location");
+  var currentStatus = document.getElementById("lg-current-status");
+
+  nodeItems.forEach(function(item) {
+    item.addEventListener("click", function() {
+      nodeItems.forEach(function(i) { i.classList.remove("active"); });
+      item.classList.add("active");
+      nodeInput.value = item.dataset.nodeId;
+      if (currentName) currentName.textContent = item.dataset.nodeName;
+      if (currentLocation) currentLocation.textContent = item.dataset.nodeLocation || "";
+    });
+  });
+
+  // Form handling
+  var form = document.getElementById("lg-form");
+  if (!form) return;
+  var typeSel = form.querySelector("#lg-query-type");
+  var target = form.querySelector("#lg-target");
+  var helpText = document.getElementById("lg-help-text");
+
+  function updateHint() {
+    var t = typeSel.value;
+    target.placeholder = placeholderMap[t] || "";
+    helpText.textContent = helpMap[t] || "";
+  }
+  typeSel.addEventListener("change", updateHint);
+  updateHint();
+
+  // Server-side rendered parsed data
+  var parsedView = document.getElementById("lg-parsed-view");
+  var parsedContainer = document.getElementById("lg-parsed-container");
+  if (parsedView && parsedContainer && window.LG && typeof window.LG.renderBirdProtocols === "function") {
+    try {
+      var data = JSON.parse(parsedView.textContent || "null");
+      if (data && window.LG.renderBirdProtocols) {
+        parsedContainer.innerHTML = window.LG.renderBirdProtocols(data);
+        if (window.applyTranslations) window.applyTranslations(parsedContainer);
+      }
+    } catch (e) { /* no-op */ }
+    parsedView.remove();
+  }
+
+  // AJAX submission
+  form.addEventListener("submit", async function (e) {
+    if (!form.dataset.ajaxEnabled) return;
+    e.preventDefault();
+    var submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="40" stroke-dashoffset="20"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
+    }
+    var resultBox = document.getElementById("lg-result");
+    if (resultBox) {
+      resultBox.innerHTML = '<div class="lg-empty-state"><svg viewBox="0 0 24 24" class="spin"><circle cx="12" cy="12" r="10" stroke-width="2" fill="none" stroke="currentColor" stroke-dasharray="30 40" stroke-linecap="round"/></svg><p>Query running…</p></div>';
+    }
+    try {
+      var resp = await fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "fetch" }
+      });
+      var data = await resp.json();
+      if (resultBox) {
+        var html = "";
+        if (data.parsed && window.LG && typeof window.LG.renderBirdProtocols === "function") {
+          html = '<div id="lg-parsed-container">' + window.LG.renderBirdProtocols(data.parsed) + '</div>';
+          html += '<details class="lg-raw-toggle"><summary>Raw output</summary><pre>' +
+            (window.LG ? window.LG.escapeHtml(data.output || "") : (data.output || "")) +
+            '</pre></details>';
+          resultBox.innerHTML = html;
+          if (window.applyTranslations) window.applyTranslations(resultBox);
+        } else {
+          var codeCls = data.ok ? "terminal ok" : "terminal";
+          resultBox.innerHTML = '<pre class="' + codeCls + '">' +
+            (window.LG ? window.LG.escapeHtml(data.output || "") : (data.output || "")) +
+            '</pre>';
+        }
+      }
+    } catch (err) {
+      if (resultBox) {
+        resultBox.innerHTML = '<div class="lg-empty-state"><p>Error: ' + (window.LG ? window.LG.escapeHtml(err.message) : err.message) + '</p></div>';
+      }
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+      }
+    }
+  });
+})();
+</script>
 {% endblock %}

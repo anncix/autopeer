@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     findnoc_api_url: str = "https://findnoc.ox5.cc"
     findnoc_api_token: str = ""
 
+    icp_record: str = ""
+    beian_record: str = ""
+    beian_verify_code: str = ""
+
     allow_insecure_defaults: bool = False
     lg_rate_limit: int = 20
     lg_rate_window_seconds: int = 60

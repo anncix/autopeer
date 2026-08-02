@@ -32,11 +32,29 @@
   {% if href %}</a>{% else %}</div>{% endif %}
 {%- endmacro %}
 
-{% macro page_header(title, subtitle=None, i18n_key=None, i18n_subtitle_key=None, i18n_title_params=None, i18n_subtitle_params=None) %}
+{# Compact stat chip (inline, for page headers) #}
+{% macro stat_chip(value, label, i18n_key=None, i18n_label_params=None) %}
+  <div class="stats-chip">
+    <span class="val">{{ value }}</span>
+    <span class="lbl"{% if i18n_key %} data-i18n="{{ i18n_key }}"{% if i18n_label_params %}{% for k, v in i18n_label_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ label }}</span>
+  </div>
+{%- endmacro %}
+
+{% macro page_header(title, subtitle=None, i18n_key=None, i18n_subtitle_key=None, i18n_title_params=None, i18n_subtitle_params=None, extra=None, compact=False) %}
+{% if compact %}
+<div class="page-header-compact">
+  <div>
+    <h1{% if i18n_key %} data-i18n="{{ i18n_key }}"{% if i18n_title_params %}{% for k, v in i18n_title_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ title }}</h1>
+    {% if subtitle %}<p class="muted"{% if i18n_subtitle_key %} data-i18n="{{ i18n_subtitle_key }}"{% if i18n_subtitle_params %}{% for k, v in i18n_subtitle_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ subtitle }}</p>{% endif %}
+  </div>
+  {% if extra %}<div class="stats-row">{{ extra }}</div>{% endif %}
+</div>
+{% else %}
 <div class="page-header">
   <h1{% if i18n_key %} data-i18n="{{ i18n_key }}"{% if i18n_title_params %}{% for k, v in i18n_title_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ title }}</h1>
   {% if subtitle %}<p class="muted"{% if i18n_subtitle_key %} data-i18n="{{ i18n_subtitle_key }}"{% if i18n_subtitle_params %}{% for k, v in i18n_subtitle_params.items() %} data-i18n-param-{{ k }}="{{ v }}"{% endfor %}{% endif %}{% endif %}>{{ subtitle }}</p>{% endif %}
 </div>
+{% endif %}
 {%- endmacro %}
 
 {% macro code_block(content, ok=None) %}

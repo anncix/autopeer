@@ -1,8 +1,8 @@
 {% extends "admin/layout.html" %}
-{% from "macros.html" import page_header, bool_pill %}
+{% from "macros.html" import page_header, bool_pill, stat_chip %}
 {% block title %}Members · {{ settings.app_name }}{% endblock %}
 {% block admin %}
-{{ page_header("Members", "Everyone who has authenticated via Kioubit.dn42.", i18n_key="admin.members", i18n_subtitle_key="admin.members_desc") }}
+{{ page_header("Members", "Everyone who has authenticated via Kioubit.dn42.", i18n_key="admin.members", i18n_subtitle_key="admin.members_desc", compact=True, extra=stat_chip(users|length, "Users", "admin.users_count")) }}
 <div class="card">
   {% if users %}
   {% for u in users %}

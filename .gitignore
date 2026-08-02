@@ -9,6 +9,11 @@ __pycache__/
 .venv/
 .env
 autopeer.db
+autopeer.db-shm
+autopeer.db-wal
+
+# Local scratch / test files
+ospf_map_test.html
 
 # Go build output
 /node

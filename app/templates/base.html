@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ settings.app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/i18n.js?v=3"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <script src="/static/i18n.js?v=6"></script>
   <script>
     (function() {
       var theme = localStorage.getItem('theme') || 'light';
@@ -32,6 +32,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Looking Glass</span>
         </a>
+        <a href="/map" class="navlink {{ 'active' if active == 'map' else '' }}" data-i18n="nav.map">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0-3 3 0 0 3 3 0 0 15-18 0 0-9 9 0 0-3 3 0 0-3 3 0 0-3 3 0 0-3 3 0z"/></svg>
+          <span>Map</span>
+        </a>
         {% if user %}
           <span class="nav-separator"></span>
           <a href="/portal" class="navlink {{ 'active' if active == 'portal' else '' }}" data-i18n="nav.my_peers">
@@ -46,13 +50,58 @@
           {% endif %}
         {% endif %}
       </nav>
+      <div class="topbar-search">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-input" placeholder="Search nodes, peers..." aria-label="Search" data-i18n-placeholder="common.search_placeholder">
+        <kbd class="search-kbd">⌘K</kbd>
+      </div>
       <div class="topbar-user">
         {% if user %}
+          <div class="topbar-actions">
+            <button id="lang-toggle" class="icon-btn" type="button" aria-label="Switch language" title="Switch language">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </button>
+            <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme" title="Toggle theme">
+              <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+          </div>
           {% set user_asn_display = user.primary_asn | replace("AS", "", 1) if user.primary_asn else "" %}
-          <span class="user-chip{% if user.is_admin %} user-chip-admin{% endif %}">AS{{ user_asn_display }}</span>
-          <a class="icon-toggle" href="/logout" data-i18n="nav.logout" aria-label="Logout" title="Logout">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </a>
+          <div class="user-menu-wrap">
+            <button class="user-avatar-btn" type="button" aria-label="User menu" aria-haspopup="true" aria-expanded="false">
+              <span class="user-avatar{% if user.is_admin %} user-avatar-admin{% endif %}">
+                {{ user_asn_display[:2] }}
+              </span>
+            </button>
+            <div class="user-menu" role="menu" hidden>
+              <div class="user-menu-header">
+                <span class="user-avatar user-avatar-large{% if user.is_admin %} user-avatar-admin{% endif %}">
+                  {{ user_asn_display[:2] }}
+                </span>
+                <div class="user-menu-header-info">
+                  <span class="user-menu-asn">AS{{ user_asn_display }}</span>
+                  <span class="user-menu-role" data-i18n="{{ 'nav.role_admin' if user.is_admin else 'nav.role_user' }}">{{ 'Administrator' if user.is_admin else 'User' }}</span>
+                </div>
+                {% if user.is_admin %}<span class="user-menu-badge" data-i18n="nav.admin">Admin</span>{% endif %}
+              </div>
+              <div class="user-menu-divider"></div>
+              <a class="user-menu-item" href="/portal" role="menuitem" data-i18n="nav.my_peers">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span data-i18n="nav.my_peers">My Peers</span>
+              </a>
+              {% if user.is_admin %}
+              <a class="user-menu-item" href="/admin" role="menuitem" data-i18n="nav.admin">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                <span data-i18n="nav.admin">Admin</span>
+              </a>
+              {% endif %}
+              <div class="user-menu-divider"></div>
+              <a class="user-menu-item user-menu-item-danger" href="/logout" role="menuitem" data-i18n="nav.logout_text">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span data-i18n="nav.logout_text">Logout</span>
+              </a>
+            </div>
+          </div>
         {% else %}
           <a class="btn btn-outlined btn-sm" href="/login" data-i18n="nav.login">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -94,11 +143,26 @@
       </nav>
       <p class="footer-copy-row mono">
         &copy; 2026 {{ settings.app_name }} &nbsp;·&nbsp; <span class="footer-version">v{{ version }}</span>
+        {% if settings.icp_record or settings.beian_record %}
+        <span class="footer-divider">|</span>
+        {% if settings.icp_record %}
+        <a class="footer-beian-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" data-i18n-param-record="{{ settings.icp_record }}">{{ settings.icp_record }}</a>
+        {% endif %}
+        {% if settings.beian_record %}
+        <a class="footer-beian-link" href="http://www.beian.gov.cn/" target="_blank" rel="noopener">
+          <span class="beian-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10 1a1 1 0 011 1v1.07A7.002 7.002 0 0117 10a7.002 7.002 0 01-6 6.93V18a1 1 0 11-2 0v-1.07A7.002 7.002 0 013 10a7.002 7.002 0 016-6.93V2a1 1 0 011-1z"/></svg>
+          </span>
+          <span data-i18n-param-record="{{ settings.beian_record }}">{{ settings.beian_record }}</span>
+        </a>
+        {% endif %}
+        {% endif %}
       </p>
     </div>
   </footer>
 
   <script src="/static/app.js?v=2" defer></script>
+  <script src="/static/lg.js?v=1" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       if (window.initI18n) {

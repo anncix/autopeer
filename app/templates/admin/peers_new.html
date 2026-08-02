@@ -29,7 +29,7 @@
         {% endfor %}
       </select>
     </label>
-    <label class="field" data-i18n="admin.peer_endpoint">WireGuard endpoint <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_endpoint_opt">WireGuard endpoint (optional)
       <input name="endpoint" placeholder="host:port (blank = peer dials us)">
     </label>
     <label class="field" data-i18n="admin.peer_wg_pubkey">WireGuard public key
@@ -45,10 +45,10 @@
         required
       >
     </label>
-    <label class="field" data-i18n="admin.peer_dn42_ipv4">Peer DN42 IPv4 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_dn42_ipv4_opt">Peer DN42 IPv4 (optional)
       <input name="peer_dn42_ipv4" placeholder="172.20.x.y or 172.20.x.y/32">
     </label>
-    <label class="field" data-i18n="admin.peer_dn42_ipv6">Peer DN42 IPv6 <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_dn42_ipv6_opt">Peer DN42 IPv6 (optional)
       <input name="peer_dn42_ipv6" placeholder="fd00::1 or fd00::1/128">
     </label>
     <label class="field" data-i18n="admin.our_address" data-i18n-param-asn="{{ settings.local_asn_number or '' }}">Our address{% if settings.local_asn_number %} (AS{{ settings.local_asn_number }}){% endif %}
@@ -59,7 +59,7 @@
         required
       >
     </label>
-    <label class="field" data-i18n="admin.peer_link_local">Peer link-local address <span class="muted" data-i18n="common.optional">(optional)</span>
+    <label class="field" data-i18n="admin.peer_link_local_opt">Peer link-local address (optional)
       <input
         id="admin-peer-link-address"
         name="peer_link_address"
