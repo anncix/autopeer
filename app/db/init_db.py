@@ -15,55 +15,29 @@ def create_schema() -> None:
     _ensure_indexes()
 
 
-# 40 test cities for map alignment verification — auto-seeded on startup if missing.
+# 14 iBGP backbone nodes — auto-seeded on startup.
 # Location strings must match keys in _MAP_LOCATION_COORDS (deps.py) for coordinate lookup.
+# Chinese display names are resolved via _NODE_NAME_ZH in deps.py.
 _MAP_SEED_CITIES = [
-    # Asia (12)
+    # China (3)
     ("Beijing",       "Beijing, China"),
     ("Shanghai",      "Shanghai, China"),
+    ("Guangzhou",     "Guangzhou, China"),
+    # East Asia (2)
     ("Tokyo",         "Tokyo, Japan"),
-    ("Singapore",     "Singapore"),
     ("Hong Kong",     "Hong Kong, China"),
-    ("Seoul",         "Seoul, South Korea"),
-    ("Mumbai",        "Mumbai, India"),
-    ("Bangkok",       "Bangkok, Thailand"),
-    ("Dubai",         "Dubai, UAE"),
-    ("Jakarta",       "Jakarta, Indonesia"),
-    ("Kuala Lumpur",  "Kuala Lumpur, Malaysia"),
-    ("Tehran",        "Tehran, Iran"),
-    # Europe (10)
-    ("London",        "London, UK"),
-    ("Frankfurt",     "Frankfurt, Germany"),
-    ("Paris",         "Paris, France"),
-    ("Amsterdam",     "Amsterdam, Netherlands"),
-    ("Berlin",        "Berlin, Germany"),
-    ("Stockholm",     "Stockholm, Sweden"),
-    ("Madrid",        "Madrid, Spain"),
-    ("Rome",          "Rome, Italy"),
-    ("Warsaw",        "Warsaw, Poland"),
-    ("Istanbul",      "Istanbul, Turkey"),
-    # North America (8)
-    ("New York",      "New York, USA"),
-    ("Los Angeles",   "Los Angeles, USA"),
-    ("Toronto",       "Toronto, Canada"),
-    ("Chicago",       "Chicago, USA"),
+    # Southeast Asia (1)
+    ("Singapore",     "Singapore"),
+    # North America (3)
     ("San Francisco", "San Francisco, USA"),
-    ("Vancouver",     "Vancouver, Canada"),
-    ("Mexico City",   "Mexico City, Mexico"),
-    ("Miami",         "Miami, USA"),
-    # South America (4)
-    ("Sao Paulo",     "Sao Paulo, Brazil"),
-    ("Buenos Aires",  "Buenos Aires, Argentina"),
-    ("Lima",          "Lima, Peru"),
-    ("Bogota",        "Bogota, Colombia"),
-    # Africa (3)
-    ("Cape Town",     "Cape Town, South Africa"),
-    ("Cairo",         "Cairo, Egypt"),
-    ("Lagos",         "Lagos, Nigeria"),
-    # Oceania (3)
-    ("Sydney",        "Sydney, Australia"),
-    ("Melbourne",     "Melbourne, Australia"),
-    ("Auckland",      "Auckland, New Zealand"),
+    ("Los Angeles",   "Los Angeles, USA"),
+    ("New York",      "New York, USA"),
+    # Europe (5)
+    ("London",        "London, UK"),
+    ("Paris",         "Paris, France"),
+    ("Frankfurt",     "Frankfurt, Germany"),
+    ("Warsaw",        "Warsaw, Poland"),
+    ("Amsterdam",     "Amsterdam, Netherlands"),
 ]
 
 
@@ -80,6 +54,12 @@ def seed_map_test_nodes() -> None:
 
     db = SessionLocal()
     try:
+        # Remove stale test nodes not in the current seed list
+        seed_names = {name for name, _ in _MAP_SEED_CITIES}
+        stale = db.query(Node).filter(~Node.name.in_(seed_names)).all()
+        for s in stale:
+            db.delete(s)
+
         created = 0
         for i, (name, location) in enumerate(_MAP_SEED_CITIES):
             existing = db.query(Node).filter(Node.name == name).first()

@@ -607,41 +607,8 @@
       });
     }
 
-    // Theme toggle with smooth transition
-    var themeBtn = document.getElementById("theme-toggle");
-    if (themeBtn) {
-      themeBtn.addEventListener("click", function () {
-        var current = document.documentElement.getAttribute("data-theme") || "dark";
-        var next = current === "dark" ? "light" : "dark";
-        
-        // Add transition class for smooth theme change
-        document.documentElement.classList.add("theme-transition");
-        
-        document.documentElement.setAttribute("data-theme", next);
-        localStorage.setItem("theme", next);
-        
-        // Update icon title
-        var label = next === "dark" ? "暗色模式" : "Light mode";
-        themeBtn.setAttribute("title", label);
-        themeBtn.setAttribute("aria-label", label);
-        
-        // Remove transition class after animation completes
-        setTimeout(function () {
-          document.documentElement.classList.remove("theme-transition");
-        }, 300);
-      });
-    }
-
-    // Language toggle
-    var langBtn = document.getElementById("lang-toggle");
-    if (langBtn) {
-      langBtn.addEventListener("click", function () {
-        var current = localStorage.getItem("lang") || "en";
-        var next = current === "en" ? "zh-CN" : "en";
-        localStorage.setItem("lang", next);
-        window.location.reload();
-      });
-    }
+    // Theme and language toggles are handled by i18n.js (initI18n).
+    // No duplicate handlers here to avoid double-firing on click.
 
     // Confirm dialogs for destructive actions (data-confirm on the button or its form).
     document.addEventListener("submit", function (e) {

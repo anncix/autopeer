@@ -1377,10 +1377,10 @@ function setLanguage(lang) {
   document.documentElement.lang = lang === 'zh-CN' ? 'zh-CN' : 'en';
   applyTranslations();
   
-  // Update language toggle button
   const langBtn = document.getElementById('lang-toggle');
   if (langBtn) {
-    langBtn.innerHTML = lang === 'zh-CN' ? '🇨🇳' : '🇺🇸';
+    const globeSvg = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+    langBtn.innerHTML = globeSvg;
     langBtn.setAttribute('aria-label', I18N[lang]['lang.switch_to']);
     langBtn.title = I18N[lang]['lang.switch_to'];
   }
@@ -1391,66 +1391,73 @@ function setTheme(theme) {
   localStorage.setItem('theme', theme);
   document.documentElement.setAttribute('data-theme', theme);
   
-  // Update theme toggle button
   const themeBtn = document.getElementById('theme-toggle');
   if (themeBtn) {
-    themeBtn.innerHTML = theme === 'dark' 
-      ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="12" cy="12" r="5"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></g></svg>'
-      : '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    if (theme === 'dark') {
+      themeBtn.innerHTML = '<svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+    } else {
+      themeBtn.innerHTML = '<svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    }
     themeBtn.setAttribute('aria-label', I18N[currentLang][theme === 'dark' ? 'theme.light' : 'theme.dark']);
     themeBtn.title = I18N[currentLang][theme === 'dark' ? 'theme.light' : 'theme.dark'];
   }
 }
 
 function initI18n() {
-  // Set initial state
   document.documentElement.lang = currentLang === 'zh-CN' ? 'zh-CN' : 'en';
   document.documentElement.setAttribute('data-theme', currentTheme);
   
-  // Create toggle buttons if they don't exist
-  createToggleButtons();
-  
-  // Apply translations
+  setupToggleButtons();
   applyTranslations();
-  
-  // Update button states
   updateButtonStates();
 }
 
-function createToggleButtons() {
+function setupToggleButtons() {
   const topbar = document.querySelector('.topbar-user');
   if (!topbar) return;
   
-  // Theme toggle (icon-only)
-  if (!document.getElementById('theme-toggle')) {
-    const themeBtn = document.createElement('button');
-    themeBtn.id = 'theme-toggle';
-    themeBtn.className = 'icon-toggle';
-    themeBtn.type = 'button';
-    themeBtn.setAttribute('role', 'button');
-    themeBtn.setAttribute('tabindex', '0');
-    themeBtn.addEventListener('click', () => {
+  const themeBtn = document.getElementById('theme-toggle');
+  if (themeBtn && !themeBtn._i18nBound) {
+    themeBtn._i18nBound = true;
+    themeBtn.addEventListener('click', function() {
       const newTheme = currentTheme === 'light' ? 'dark' : 'light';
       setTheme(newTheme);
       updateButtonStates();
     });
-    topbar.insertBefore(themeBtn, topbar.firstChild);
+  } else if (!themeBtn) {
+    const btn = document.createElement('button');
+    btn.id = 'theme-toggle';
+    btn.className = 'icon-toggle';
+    btn.type = 'button';
+    btn._i18nBound = true;
+    btn.addEventListener('click', function() {
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+      updateButtonStates();
+    });
+    topbar.insertBefore(btn, topbar.firstChild);
   }
   
-  // Language toggle (icon-only with flag)
-  if (!document.getElementById('lang-toggle')) {
-    const langBtn = document.createElement('button');
-    langBtn.id = 'lang-toggle';
-    langBtn.className = 'icon-toggle';
-    langBtn.type = 'button';
-    langBtn.setAttribute('role', 'button');
-    langBtn.setAttribute('tabindex', '0');
-    langBtn.addEventListener('click', () => {
+  const langBtn = document.getElementById('lang-toggle');
+  if (langBtn && !langBtn._i18nBound) {
+    langBtn._i18nBound = true;
+    langBtn.addEventListener('click', function() {
       const newLang = currentLang === 'en' ? 'zh-CN' : 'en';
       setLanguage(newLang);
       updateButtonStates();
     });
-    topbar.insertBefore(langBtn, topbar.firstChild);
+  } else if (!langBtn) {
+    const btn = document.createElement('button');
+    btn.id = 'lang-toggle';
+    btn.className = 'icon-toggle';
+    btn.type = 'button';
+    btn._i18nBound = true;
+    btn.addEventListener('click', function() {
+      const newLang = currentLang === 'en' ? 'zh-CN' : 'en';
+      setLanguage(newLang);
+      updateButtonStates();
+    });
+    topbar.insertBefore(btn, topbar.firstChild);
   }
 }
 

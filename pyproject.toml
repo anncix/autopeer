@@ -1,6 +1,6 @@
 [project]
 name = "dn42-autopeer"
-version = "0.0.2"
+version = "0.1.0"
 description = "Python control plane for dn42 autopeering, looking glass, WebUI, and Telegram bot."
 requires-python = ">=3.11"
 dependencies = [

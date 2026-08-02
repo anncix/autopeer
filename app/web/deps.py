@@ -26,6 +26,14 @@ from app.node_ws import node_runtime_context
 from app.version import VERSION
 
 logger = logging.getLogger("dn42.autopeer")
+# Ensure INFO-level diagnostic logs reach stderr (uvicorn doesn't configure app loggers)
+if not logger.handlers:
+    import sys
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
 lg_rate_limiter = SlidingWindowRateLimiter(settings.lg_rate_limit, settings.lg_rate_window_seconds)
@@ -146,11 +154,13 @@ _MAP_LOCATION_COORDS = {
     "amsterdam": (52.3676, 4.9041),
     "toronto": (43.6532, -79.3832),
     "new york": (40.7128, -74.0060),
+    "new york city": (40.7128, -74.0060),
     "los angeles": (34.0522, -118.2437),
     "tokyo": (35.6762, 139.6503),
     "singapore": (1.3521, 103.8198),
     "beijing": (39.9042, 116.4074),
     "shanghai": (31.2304, 121.4737),
+    "guangzhou": (23.1291, 113.2644),
     "sydney": (-33.8688, 151.2093),
     "sao paulo": (-23.5505, -46.6333),
     "cape town": (-33.9249, 18.4241),
@@ -199,6 +209,43 @@ _MAP_LOCATION_COORDS = {
     "sg": (1.3521, 103.8198),
 }
 
+# Chinese display names for map nodes — falls back to English name if missing.
+_NODE_NAME_ZH = {
+    "Beijing": "北京",
+    "Shanghai": "上海",
+    "Guangzhou": "广州",
+    "Tokyo": "东京",
+    "Hong Kong": "香港",
+    "Singapore": "新加坡",
+    "San Francisco": "硅谷",
+    "Los Angeles": "洛杉矶",
+    "New York": "纽约",
+    "London": "伦敦",
+    "Paris": "巴黎",
+    "Frankfurt": "法兰克福",
+    "Warsaw": "华沙",
+    "Amsterdam": "阿姆斯特丹",
+}
+
+# Peer-count baselines per node — major Internet hubs get more peers.
+# Demo mode adds ±random variation so values change on each page load.
+_NODE_PEER_BASELINE = {
+    "Singapore": 28,       # Major Asian exchange hub
+    "Frankfurt": 26,       # DE-CIX, largest European exchange
+    "Amsterdam": 24,       # AMS-IX, major European exchange
+    "London": 22,          # LINX, major European exchange
+    "Tokyo": 20,           # Major Asian hub (JPIX)
+    "Hong Kong": 18,       # Major Asian exchange hub
+    "Paris": 16,           # France-IX
+    "Shanghai": 15,        # Chinese exchange hub
+    "Los Angeles": 14,     # US west coast hub
+    "New York": 16,        # US east coast hub (Equinix NY)
+    "Beijing": 12,         # Chinese exchange hub
+    "San Francisco": 10,   # US west coast
+    "Guangzhou": 8,        # Chinese regional hub
+    "Warsaw": 5,           # European regional
+}
+
 
 def _map_coords(location: str | None) -> tuple[float, float] | None:
     if not location:
@@ -222,9 +269,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def _latency_from_distance(dist_km: float) -> float:
     import random
+    # Fiber optic: ~200km/ms (speed of light in fiber ≈ 2/3 c)
     base = dist_km / 200.0
-    routing = 5.0
-    jitter = random.uniform(-3, 8)
+    # Routing overhead (hops, processing): 3-12ms
+    routing = random.uniform(3, 12)
+    # Jitter: ±3ms
+    jitter = random.uniform(-3, 3)
     return max(1.0, round(base + routing + jitter, 1))
 
 
@@ -273,6 +323,7 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
                 "online": True,
                 "latency": history[-1],
                 "history": history,
+                "peer_count": max(1, int(random.uniform(8, 35))),
             })
 
         intra_links_data: list[dict] = []
@@ -315,6 +366,9 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
 
     # In demo mode, treat all enabled nodes as online
     if demo:
+        _enabled_count = sum(1 for n in nodes_for_runtime if n.enabled)
+        logger.info("[map-data] DEMO mode active, setting %d/%d enabled nodes online",
+                    _enabled_count, len(nodes_for_runtime))
         for n in nodes_for_runtime:
             if n.enabled:
                 runtime[n.id] = {**runtime.get(n.id, {}), "online": True}
@@ -337,6 +391,19 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
         "links_total": count(IntraLink),
     }
 
+    # Per-node peer counts: real DB count, or weighted mock in demo mode.
+    peer_counts: dict[str, int] = {}
+    if demo:
+        for n in nodes_for_runtime:
+            base = _NODE_PEER_BASELINE.get(n.name, 8)
+            peer_counts[n.id] = max(1, int(base + random.uniform(-4, 6)))
+    else:
+        from sqlalchemy import func as _func
+        pc_rows = db.query(
+            PeerRequest.node_id, _func.count(PeerRequest.id)
+        ).filter(PeerRequest.status == "active").group_by(PeerRequest.node_id).all()
+        peer_counts = {nid: cnt for nid, cnt in pc_rows}
+
     nodes_geo: list[dict] = []
     node_coords_map: dict[str, tuple[float, float]] = {}
     node_online_map: dict[str, bool] = {}
@@ -349,10 +416,12 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
         nodes_geo.append({
             "id": n.id,
             "name": n.name,
+            "name_zh": _NODE_NAME_ZH.get(n.name, n.name),
             "location": n.location,
             "lat": coords[0] if coords else None,
             "lng": coords[1] if coords else None,
             "online": online,
+            "peer_count": peer_counts.get(n.id, 0),
         })
 
     for node_entry in nodes_geo:
@@ -373,11 +442,13 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
 
         base_latency = sum(peer_latencies) / len(peer_latencies) if peer_latencies else 20.0
 
+        # Mean-reverting random walk: pulls toward base_latency, adds symmetric noise
         history: list[float] = []
-        current = base_latency
+        current = base_latency + random.uniform(-3, 3)
         for _ in range(5):
-            delta = random.uniform(-8, 12)
-            current = max(1.0, current + delta)
+            pull = (base_latency - current) * 0.3
+            noise = random.uniform(-4, 4)
+            current = max(1.0, current + pull + noise)
             history.append(round(current, 1))
         node_entry["history"] = history
         node_entry["latency"] = history[-1]
@@ -421,7 +492,7 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
     if demo:
         intra_links_data = []
         online_nodes = [
-            (n["id"], n["lat"], n["lng"], n["name"])
+            (n["id"], n["lat"], n["lng"], n.get("name_zh") or n["name"])
             for n in nodes_geo
             if n["online"] and n["lat"] is not None
         ]
@@ -443,6 +514,69 @@ def build_map_data(db: Session, demo: bool = False, mock: bool = False) -> dict:
                     "latency": latency,
                     "deployed": True,
                 })
+
+    # ── Diagnostic logging: data injection integrity ──
+    from datetime import datetime
+    _ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+    # Field completeness check per node
+    _missing_coords = [n["name"] for n in nodes_geo if n["lat"] is None or n["lng"] is None]
+    _missing_peers = [n["name"] for n in nodes_geo if n.get("peer_count") is None]
+    _zero_peers = [n["name"] for n in nodes_geo if n.get("peer_count", 0) == 0]
+    _missing_lat = [n["name"] for n in nodes_geo if n.get("latency") is None and n["online"]]
+    _extreme_coords = [
+        n["name"] for n in nodes_geo
+        if n.get("lat") is not None and (abs(n["lat"]) > 85 or abs(n["lng"]) > 180)
+    ]
+
+    # New York specific check
+    _ny = next((n for n in nodes_geo if n["name"] == "New York"), None)
+    _ny_status = "OK"
+    if not _ny:
+        _ny_status = "MISSING"
+    else:
+        _ny_issues = []
+        if _ny.get("lat") is None: _ny_issues.append("NO_LAT")
+        if _ny.get("lng") is None: _ny_issues.append("NO_LNG")
+        if _ny.get("peer_count") is None: _ny_issues.append("NO_PEERS")
+        if _ny.get("latency") is None and _ny.get("online"): _ny_issues.append("NO_LATENCY")
+        if _ny_issues: _ny_status = ",".join(_ny_issues)
+
+    # Link integrity check
+    _link_issues = []
+    for l in intra_links_data:
+        li = []
+        if l.get("latency") is None: li.append("NO_LAT")
+        if l.get("source_lat") is None: li.append("NO_SRC_COORD")
+        if l.get("target_lat") is None: li.append("NO_TGT_COORD")
+        if l.get("source_id") is None or l.get("target_id") is None: li.append("NO_ID")
+        if li:
+            _link_issues.append("%s: %s" % (l.get("id", "?"), ",".join(li)))
+
+    # Check for orphan links (source/target not in node set)
+    _node_ids = {n["id"] for n in nodes_geo}
+    _orphan_links = [
+        l["id"] for l in intra_links_data
+        if l.get("source_id") not in _node_ids or l.get("target_id") not in _node_ids
+    ]
+
+    logger.info(
+        "[%s][map-data] RECEIVED nodes=%d online=%d links=%d | "
+        "missing_coords=%s zero_peers=%s missing_lat=%s extreme_coords=%s | "
+        "new_york=%s | link_issues=%d orphan_links=%s",
+        _ts, len(nodes_geo), stats["nodes_online"], len(intra_links_data),
+        _missing_coords or "none", _zero_peers or "none", _missing_lat or "none",
+        _extreme_coords or "none",
+        _ny_status,
+        len(_link_issues), _orphan_links or "none",
+    )
+
+    if demo:
+        _peer_summary = {n["name_zh"]: n["peer_count"] for n in nodes_geo}
+        _lat_summary = {n["name_zh"]: n.get("latency") for n in nodes_geo if n.get("latency")}
+        logger.debug("[%s][map-data] DETAIL peers=%s", _ts, _peer_summary)
+        logger.debug("[%s][map-data] DETAIL latency=%s", _ts, _lat_summary)
+        logger.debug("[%s][map-data] DETAIL ny=%s", _ts, _ny)
 
     return {
         "stats": stats,

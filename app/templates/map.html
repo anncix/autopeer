@@ -1,153 +1,138 @@
-{% extends "base.html" %}
-{% from "macros.html" import page_header %}
-{% block title %}{{ settings.app_name }} · Network Map{% endblock %}
-{% block content %}
-<div class="map-page-wrap">
-  {{ page_header(
-      "Network Map",
-      "Real-time latency across all nodes",
-      i18n_key="admin.network_map",
-      i18n_subtitle_key="admin.network_map_desc",
-      compact=True
-  ) }}
-
-  <div class="ospf-dashboard">
-    <div class="ospf-stats-bar">
+{% extends "base_fullscreen.html" %}
+{% block title %}{{ settings.app_name }} · 网络地图{% endblock %}
+{% block fullscreen_content %}
+<div class="map-fullscreen">
+  <div class="ospf-svg-wrapper map-svg-fullscreen">
+    <!-- 浮动统计条 -->
+    <div class="ospf-stats-bar map-stats-floating">
       <div class="ospf-stat-card">
-        <span class="ospf-stat-label" data-i18n="admin.online_nodes">Online Nodes</span>
+        <span class="ospf-stat-label">在线节点</span>
         <span class="ospf-stat-value">{{ stats.nodes_online }}<span class="ospf-stat-total">/{{ stats.nodes_total }}</span></span>
       </div>
       <div class="ospf-stat-card">
-        <span class="ospf-stat-label" data-i18n="admin.avg_latency">Avg Latency</span>
+        <span class="ospf-stat-label">Peer 总数</span>
+        <span class="ospf-stat-value" id="total-peers">--</span>
+      </div>
+      <div class="ospf-stat-card">
+        <span class="ospf-stat-label">平均延迟</span>
         <span class="ospf-stat-value" id="avg-latency">--<span class="ospf-stat-unit">ms</span></span>
       </div>
       <div class="ospf-stat-card">
-        <span class="ospf-stat-label" data-i18n="admin.max_latency">Max Latency</span>
+        <span class="ospf-stat-label">最大延迟</span>
         <span class="ospf-stat-value" id="max-latency">--<span class="ospf-stat-unit">ms</span></span>
       </div>
       <div class="ospf-stat-card">
-        <span class="ospf-stat-label" data-i18n="admin.min_latency">Min Latency</span>
+        <span class="ospf-stat-label">最小延迟</span>
         <span class="ospf-stat-value" id="min-latency">--<span class="ospf-stat-unit">ms</span></span>
       </div>
       <div class="ospf-stat-card ospf-stat-uptime">
-        <span class="ospf-stat-label" data-i18n="admin.uptime">Last Update</span>
+        <span class="ospf-stat-label">最后更新</span>
         <span class="ospf-stat-value" id="last-update">--:--:--</span>
       </div>
     </div>
 
-    <div class="ospf-map-wrapper ospf-svg-wrapper">
-      <div class="ospf-map-controls-top">
-        <div class="ospf-map-controls">
-          <button class="map-ctrl-btn" id="refresh-btn" title="Refresh" data-i18n-placeholder="admin.refresh">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
-          <button class="map-ctrl-btn" id="auto-refresh-btn" title="Auto-refresh" data-i18n-placeholder="admin.auto_refresh">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-7.07-3.93l4.24-4.24m5.66-5.66l4.24-4.24M1 12h6m6 0h6m-3.93 7.07l-4.24-4.24m-5.66-5.66L4.93 4.93"/></svg>
-          </button>
-          <button class="map-ctrl-btn" id="focus-btn" title="Focus nodes" data-i18n-placeholder="admin.focus_nodes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>
-          </button>
-          <button class="map-ctrl-btn" id="jitter-btn" title="Network jitter" data-i18n-placeholder="admin.jitter">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </button>
-        </div>
+    <!-- 左侧浮动面板：大洲切换 + 节点列表 -->
+    <div class="map-sidebar" id="map-sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">大洲</div>
+        <div class="sidebar-continent-list" id="sidebar-continents"></div>
       </div>
-
-      <div id="ospf-svg-map">
-        <svg id="world-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="blur"/>
-              <feMerge>
-                <feMergeNode in="blur"/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
-            </filter>
-            <filter id="glow-strong" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="6" result="blur"/>
-              <feMerge>
-                <feMergeNode in="blur"/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
-            </filter>
-            <marker id="arrow-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#26D07C"/>
-            </marker>
-            <marker id="arrow-good" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#52C41A"/>
-            </marker>
-            <marker id="arrow-warn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#F5A524"/>
-            </marker>
-            <marker id="arrow-err" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#EF4444"/>
-            </marker>
-            <radialGradient id="pulse-grad" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="currentColor" stop-opacity="0.6"/>
-              <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
-            </radialGradient>
-          </defs>
-
-          <g class="map-grid">
-            <line x1="500" y1="0" x2="500" y2="500"/>
-            <line x1="250" y1="0" x2="250" y2="500"/>
-            <line x1="750" y1="0" x2="750" y2="500"/>
-            <line x1="125" y1="0" x2="125" y2="500"/>
-            <line x1="375" y1="0" x2="375" y2="500"/>
-            <line x1="625" y1="0" x2="625" y2="500"/>
-            <line x1="875" y1="0" x2="875" y2="500"/>
-            <line x1="0" y1="250" x2="1000" y2="250"/>
-            <line x1="0" y1="125" x2="1000" y2="125"/>
-            <line x1="0" y1="375" x2="1000" y2="375"/>
-            <line x1="0" y1="62" x2="1000" y2="62"/>
-            <line x1="0" y1="188" x2="1000" y2="188"/>
-            <line x1="0" y1="312" x2="1000" y2="312"/>
-          </g>
-
-          <g class="map-continents" id="map-continents">
-            <!-- Real 1:1 continent outlines loaded from world-map.json -->
-          </g>
-
-          <g class="map-labels">
-            <text x="500" y="20" class="map-label-txt">0°</text>
-            <text x="10" y="255" class="map-label-txt">90°N</text>
-            <text x="10" y="130" class="map-label-txt">45°N</text>
-            <text x="10" y="380" class="map-label-txt">45°S</text>
-            <text x="500" y="495" class="map-label-txt" text-anchor="middle">0°</text>
-            <text x="250" y="495" class="map-label-txt" text-anchor="middle">90°W</text>
-            <text x="750" y="495" class="map-label-txt" text-anchor="middle">90°E</text>
-            <text x="125" y="495" class="map-label-txt" text-anchor="middle">135°W</text>
-            <text x="875" y="495" class="map-label-txt" text-anchor="middle">135°E</text>
-          </g>
-
-          <g id="map-links"></g>
-          <g id="map-nodes"></g>
-          <g id="map-pulses"></g>
-        </svg>
-
-        <div id="ospf-tooltip" class="ospf-tooltip" style="display:none;">
-          <div class="ospf-tooltip-header">
-            <span class="ospf-tooltip-name" id="tooltip-name"></span>
-            <span class="ospf-tooltip-status" id="tooltip-status"></span>
-          </div>
-          <div class="ospf-tooltip-row"><span>Location</span><span id="tooltip-location"></span></div>
-          <div class="ospf-tooltip-row"><span>Latency</span><span id="tooltip-latency"></span></div>
-          <div class="ospf-tooltip-chart" id="tooltip-chart"></div>
-        </div>
-      </div>
-
-      <div class="ospf-map-legend">
-        <span class="legend-title" data-i18n="admin.latency_legend">Latency (ms)</span>
-        <div class="legend-items">
-          <div class="legend-item"><span class="legend-dot legend-ok"></span><span>0-20</span></div>
-          <div class="legend-item"><span class="legend-dot legend-good"></span><span>20-50</span></div>
-          <div class="legend-item"><span class="legend-dot legend-warn"></span><span>50-100</span></div>
-          <div class="legend-item"><span class="legend-dot legend-err"></span><span>>100</span></div>
-          <div class="legend-item"><span class="legend-dot legend-offline"></span><span data-i18n="admin.offline">Offline</span></div>
-        </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">节点</div>
+        <div class="sidebar-node-list" id="sidebar-nodes"></div>
       </div>
     </div>
 
+    <!-- 底部浮动地图控件 -->
+    <div class="ospf-map-controls-bottom">
+      <div class="focus-indicator" id="focus-indicator">全部地图</div>
+      <div class="ospf-map-controls">
+        <button class="map-ctrl-btn" id="refresh-btn" title="刷新">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+        <button class="map-ctrl-btn" id="auto-refresh-btn" title="自动刷新">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-7.07-3.93l4.24-4.24m5.66-5.66l4.24-4.24M1 12h6m6 0h6m-3.93 7.07l-4.24-4.24m-5.66-5.66L4.93 4.93"/></svg>
+        </button>
+        <button class="map-ctrl-btn" id="focus-btn" title="聚焦">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 全屏 SVG 地图 -->
+    <div id="ospf-svg-map">
+      <svg id="world-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid slice">
+        <defs>
+        </defs>
+
+        <g class="map-grid">
+          <line x1="500" y1="0" x2="500" y2="500"/>
+          <line x1="250" y1="0" x2="250" y2="500"/>
+          <line x1="750" y1="0" x2="750" y2="500"/>
+          <line x1="125" y1="0" x2="125" y2="500"/>
+          <line x1="375" y1="0" x2="375" y2="500"/>
+          <line x1="625" y1="0" x2="625" y2="500"/>
+          <line x1="875" y1="0" x2="875" y2="500"/>
+          <line x1="0" y1="250" x2="1000" y2="250"/>
+          <line x1="0" y1="125" x2="1000" y2="125"/>
+          <line x1="0" y1="375" x2="1000" y2="375"/>
+          <line x1="0" y1="62" x2="1000" y2="62"/>
+          <line x1="0" y1="188" x2="1000" y2="188"/>
+          <line x1="0" y1="312" x2="1000" y2="312"/>
+        </g>
+
+        <g class="map-continents" id="map-continents">
+          <!-- Continent outline loaded from world-map.json -->
+        </g>
+
+        <g class="map-labels">
+          <text x="500" y="20" class="map-label-txt">0°</text>
+          <text x="10" y="255" class="map-label-txt">90°N</text>
+          <text x="10" y="130" class="map-label-txt">45°N</text>
+          <text x="10" y="380" class="map-label-txt">45°S</text>
+          <text x="500" y="495" class="map-label-txt" text-anchor="middle">0°</text>
+          <text x="250" y="495" class="map-label-txt" text-anchor="middle">90°W</text>
+          <text x="750" y="495" class="map-label-txt" text-anchor="middle">90°E</text>
+          <text x="125" y="495" class="map-label-txt" text-anchor="middle">135°W</text>
+          <text x="875" y="495" class="map-label-txt" text-anchor="middle">135°E</text>
+        </g>
+
+        <g id="map-links"></g>
+        <g id="map-nodes"></g>
+      </svg>
+
+      <div id="ospf-tooltip" class="ospf-tooltip" style="display:none;">
+        <div class="ospf-tooltip-header">
+          <span class="ospf-tooltip-name" id="tooltip-name"></span>
+          <span class="ospf-tooltip-status" id="tooltip-status"></span>
+        </div>
+        <div class="ospf-tooltip-row"><span>位置</span><span id="tooltip-location"></span></div>
+        <div class="ospf-tooltip-row"><span>Peer 数</span><span id="tooltip-peers"></span></div>
+        <div class="ospf-tooltip-row"><span>延迟</span><span id="tooltip-latency"></span></div>
+        <div class="ospf-tooltip-chart" id="tooltip-chart"></div>
+      </div>
+    </div>
+
+    <!-- 浮动图例 -->
+    <div class="ospf-map-legend map-legend-floating">
+      <span class="legend-title">iBGP 延迟 (ms)</span>
+      <div class="legend-items">
+        <div class="legend-item"><span class="legend-dot legend-ok"></span><span>&lt;30</span></div>
+        <div class="legend-item"><span class="legend-dot legend-warn"></span><span>30-80</span></div>
+        <div class="legend-item"><span class="legend-dot legend-err"></span><span>&gt;80</span></div>
+        <div class="legend-item"><span class="legend-dot legend-offline"></span><span>离线</span></div>
+      </div>
+      <span class="legend-title" style="margin-left:16px;">Peer 数量</span>
+      <div class="legend-gradient-wrap">
+        <div class="legend-gradient"></div>
+        <div class="legend-gradient-labels">
+          <span>0</span><span>15</span><span>30+</span>
+        </div>
+        <div class="legend-hollow-row">
+          <span class="legend-hollow-dot"></span><span>无 Peer</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -157,40 +142,73 @@
   var linksData = {{ intra_links|tojson|safe }};
 
   var MAP_W = 1000, MAP_H = 500;
+
+  // ── Continent groupings for L3 focus ──
+  var CONTINENT_GROUPS = [
+    { key: 'asia',          label: '亚洲', names: ['Tokyo','Hong Kong','Singapore','Beijing','Shanghai','Guangzhou'] },
+    { key: 'europe',        label: '欧洲', names: ['London','Paris','Frankfurt','Warsaw','Amsterdam'] },
+    { key: 'north_america', label: '北美', names: ['San Francisco','Los Angeles','New York'] }
+  ];
+
+  // ── Node abbreviations (IATA-style codes) ──
+  var NODE_ABBR = {
+    'Tokyo': 'TYO', 'Hong Kong': 'HKG', 'Singapore': 'SGP',
+    'Beijing': 'BJS', 'Shanghai': 'SHA', 'Guangzhou': 'CAN',
+    'London': 'LHR', 'Paris': 'CDG', 'Frankfurt': 'FRA',
+    'Warsaw': 'WAW', 'Amsterdam': 'AMS',
+    'San Francisco': 'SFO', 'Los Angeles': 'LAX', 'New York': 'NYC'
+  };
+  function getAbbr(name) { return NODE_ABBR[name] || (name || '').substr(0, 3).toUpperCase(); }
+
   function project(lat, lng) {
-    var x = (lng + 180) / 360 * MAP_W;
-    var y = (90 - lat) / 180 * MAP_H;
+    if (lat === null || lat === undefined || lng === null || lng === undefined ||
+        isNaN(lat) || isNaN(lng)) {
+      return { x: -9999, y: -9999 };
+    }
+    var clampedLat = Math.max(-90, Math.min(90, lat));
+    var clampedLng = Math.max(-180, Math.min(180, lng));
+    var x = (clampedLng + 180) / 360 * MAP_W;
+    var y = (90 - clampedLat) / 180 * MAP_H;
     return { x: x, y: y };
+  }
+
+  // ── HSL gradient: smoothstep easing + multi-stop hue path ──
+  // Path: green(140°) → lime(95°) → yellow(52°) → orange(28°) → red(2°)
+  // Lightness dims slightly toward red; saturation boosts in mid-range
+  function getPeerColor(count) {
+    if (!count || count <= 0) return '#64748b'; // gray for no peers
+    var t = Math.min(1, count / 30);
+    var e = t * t * (3 - 2 * t); // smoothstep
+    var hue;
+    if (e < 0.25)      hue = 140 + (95 - 140) * (e / 0.25);
+    else if (e < 0.5)  hue = 95 + (52 - 95) * ((e - 0.25) / 0.25);
+    else if (e < 0.75) hue = 52 + (28 - 52) * ((e - 0.5) / 0.25);
+    else               hue = 28 + (2 - 28) * ((e - 0.75) / 0.25);
+    var light = 52 - e * 10;                 // 52% → 42%
+    var sat = 70 + Math.sin(e * Math.PI) * 10; // 70% → 80% → 70%
+    return 'hsl(' + Math.round(hue) + ',' + Math.round(sat) + '%,' + Math.round(light) + '%)';
+  }
+
+  function getPeerRadius(count) {
+    if (!count || count <= 0) return 1.8;
+    return Math.max(1.6, Math.min(4.5, 1.6 + count * 0.12));
   }
 
   function getLatencyClass(latency) {
     if (latency === null || latency === undefined) return "offline";
-    if (latency < 20) return "ok";
-    if (latency < 50) return "good";
-    if (latency < 100) return "warn";
+    if (latency < 30) return "ok";
+    if (latency < 80) return "warn";
     return "err";
   }
 
   function getLatencyColor(_class) {
-    var colors = {
-      "ok": "#26D07C",
-      "good": "#52C41A",
-      "warn": "#F5A524",
-      "err": "#EF4444",
-      "offline": "#546175"
-    };
+    var colors = { "ok": "#15803d", "warn": "#eab308", "err": "#ef4444", "offline": "#64748b" };
     return colors[_class] || colors.offline;
   }
 
   function getLatencyLabel(_class) {
-    var labels = {
-      "ok": "Excellent",
-      "good": "Good",
-      "warn": "Degraded",
-      "err": "Poor",
-      "offline": "Offline"
-    };
-    return labels[_class] || "Unknown";
+    var labels = { "ok": "优秀", "warn": "一般", "err": "较差", "offline": "离线" };
+    return labels[_class] || "未知";
   }
 
   function escapeHtml(text) {
@@ -199,32 +217,60 @@
     return div.innerHTML;
   }
 
+  // ── Logger ──
+  function _ts() { return new Date().toISOString().substr(11, 12); }
+  function _sprintf(fmt) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var idx = 0;
+    return fmt.replace(/%%|%(\.\d+)?[sdf]/g, function(m, prec) {
+      if (m === '%%') return '%';
+      if (idx >= args.length) return m;
+      var v = args[idx++];
+      if (m.charAt(m.length - 1) === 's') return String(v);
+      if (m.charAt(m.length - 1) === 'd') return Math.round(Number(v));
+      var p = prec ? parseInt(prec.substr(1)) : 6;
+      return Number(v).toFixed(p);
+    });
+  }
+  function _log(tag, msg) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    console.log('[%s][%s] %s', _ts(), tag, _sprintf.apply(null, args));
+  }
+  function _warn(tag, msg) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    console.warn('[%s][%s] %s', _ts(), tag, _sprintf.apply(null, args));
+  }
+
   var svg = document.getElementById('world-svg');
   var nodesGroup = document.getElementById('map-nodes');
   var linksGroup = document.getElementById('map-links');
-  var pulsesGroup = document.getElementById('map-pulses');
   var tooltip = document.getElementById('ospf-tooltip');
   var latencyHistory = {};
   var nodeElements = {};
   var isHighlighted = null;
-  var searchQuery = '';
 
-  // Current SVG viewBox (animated when focusing on nodes / resetting to world)
+  // ── Focus state machine ──
   var FULL_VIEW = { x: 0, y: 0, w: 1000, h: 500 };
   var currentView = { x: 0, y: 0, w: 1000, h: 500 };
-  var isFocused = false;
+  var focusState = { level: 'L1', continent: null, nodeId: null };
   var viewAnim = null;
 
   function applyView(v) {
-    currentView = v;
-    svg.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
+    // Guard against NaN / zero / negative dimensions that corrupt the viewBox
+    var w = Math.max(1, v.w || 1);
+    var h = Math.max(1, v.h || 1);
+    var x = isNaN(v.x) ? 0 : v.x;
+    var y = isNaN(v.y) ? 0 : v.y;
+    currentView = { x: x, y: y, w: w, h: h };
+    svg.setAttribute('viewBox', x + ' ' + y + ' ' + w + ' ' + h);
   }
 
-  // Convert SVG user coordinates to screen pixels inside the svg element,
-  // accounting for preserveAspectRatio="xMidYMid meet" letterboxing.
   function svgToScreen(svgX, svgY) {
     var rect = svg.getBoundingClientRect();
-    var scale = Math.min(rect.width / currentView.w, rect.height / currentView.h);
+    if (currentView.w <= 0 || currentView.h <= 0 || rect.width <= 0 || rect.height <= 0) {
+      return { x: 0, y: 0, scale: 1 };
+    }
+    var scale = Math.max(rect.width / currentView.w, rect.height / currentView.h);
     var renderedW = currentView.w * scale;
     var renderedH = currentView.h * scale;
     var offsetX = (rect.width - renderedW) / 2;
@@ -242,14 +288,13 @@
     var t0 = performance.now();
     function step(now) {
       var t = Math.min(1, (now - t0) / duration);
-      var e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      var e = 1 - Math.pow(1 - t, 3);
       applyView({
         x: start.x + (target.x - start.x) * e,
         y: start.y + (target.y - start.y) * e,
         w: start.w + (target.w - start.w) * e,
         h: start.h + (target.h - start.h) * e
       });
-      // Keep the detail panel glued to its node during the zoom
       if (isHighlighted) positionDetailPanel(isHighlighted);
       if (t < 1) viewAnim = requestAnimationFrame(step);
       else viewAnim = null;
@@ -257,9 +302,11 @@
     viewAnim = requestAnimationFrame(step);
   }
 
-  function focusOnNodes() {
-    var valid = nodesData.filter(function(n) { return n.lat !== null && n.lng !== null; });
-    if (valid.length === 0) { resetView(); return; }
+  // ── Bounding box computation (reused for L2/L3) ──
+  // Matches the container aspect ratio so slice mode never crops nodes.
+  function computeBBoxFor(nodeList) {
+    var valid = nodeList.filter(function(n) { return n.lat !== null && n.lng !== null; });
+    if (valid.length === 0) return null;
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     valid.forEach(function(n) {
       var p = project(n.lat, n.lng);
@@ -268,187 +315,264 @@
       if (p.y < minY) minY = p.y;
       if (p.y > maxY) maxY = p.y;
     });
-    var padX = Math.max(40, (maxX - minX) * 0.10);
-    var padY = Math.max(32, (maxY - minY) * 0.10);
-    var x = Math.max(0, minX - padX);
-    var y = Math.max(0, minY - padY);
-    var w = Math.min(1000 - x, (maxX - minX) + padX * 2);
-    var h = Math.min(500 - y, (maxY - minY) + padY * 2);
-    // Guard against degenerate (single-node) boxes
-    if (w < 220) { var cx = x + w / 2; x = Math.max(0, cx - 110); w = Math.min(1000 - x, 220); }
-    if (h < 170) { var cy = y + h / 2; y = Math.max(0, cy - 85); h = Math.min(500 - y, 170); }
-    animateView({ x: x, y: y, w: w, h: h }, 480);
+    var padX = Math.max(40, (maxX - minX) * 0.12);
+    var padY = Math.max(32, (maxY - minY) * 0.12);
+    var w = (maxX - minX) + padX * 2;
+    var h = (maxY - minY) + padY * 2;
+    var cx = (minX + maxX) / 2;
+    var cy = (minY + maxY) / 2;
+    // Match container aspect ratio so slice mode doesn't crop nodes on any side
+    var rect = svg.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      var containerRatio = rect.width / rect.height;
+      var bboxRatio = w / h;
+      if (bboxRatio < containerRatio) {
+        // Too tall — widen to match container ratio
+        w = h * containerRatio;
+      } else if (bboxRatio > containerRatio) {
+        // Too wide — increase height to match container ratio
+        h = w / containerRatio;
+      }
+    }
+    // Enforce minimums so single-node or tight clusters remain navigable
+    if (w < 220) { w = 220; }
+    if (h < 170) { h = 170; }
+    var x = Math.max(0, Math.min(1000 - w, cx - w / 2));
+    var y = Math.max(0, Math.min(500 - h, cy - h / 2));
+    return { x: x, y: y, w: w, h: h };
   }
 
-  function resetView() {
-    animateView(FULL_VIEW, 480);
+  // ── Focus level management ──
+  function setFocusLevel(level, opts) {
+    opts = opts || {};
+    focusState.level = level;
+    focusState.continent = opts.continent !== undefined ? opts.continent : focusState.continent;
+    focusState.nodeId = opts.nodeId || null;
+
+    var target;
+    if (level === 'L1') {
+      target = FULL_VIEW;
+    } else if (level === 'L2') {
+      target = computeBBoxFor(nodesData.filter(function(n) { return n.online; })) || FULL_VIEW;
+    } else if (level === 'L3') {
+      var grp = CONTINENT_GROUPS.find(function(g) { return g.key === focusState.continent; });
+      var nameSet = (grp || {}).names || [];
+      var ns = nodesData.filter(function(n) { return nameSet.indexOf(n.name) >= 0; });
+      target = computeBBoxFor(ns) || FULL_VIEW;
+    } else if (level === 'L4') {
+      var ne = nodeElements[focusState.nodeId];
+      if (!ne) { target = FULL_VIEW; }
+      else {
+        var rect = svg.getBoundingClientRect();
+        var ratio = rect.width / Math.max(rect.height, 1);
+        var w = 340, h = w / ratio;
+        if (h > 280) { h = 280; w = h * ratio; }
+        if (w > 980) { w = 980; h = w / ratio; }  // cap to map bounds
+        if (h > 480) { h = 480; w = h * ratio; }
+        var x = Math.max(0, Math.min(Math.max(0, 1000 - w), ne.pos.x - w / 2));
+        var y = Math.max(0, Math.min(Math.max(0, 500 - h), ne.pos.y - h / 2));
+        target = { x: x, y: y, w: w, h: h };
+      }
+    }
+    animateView(target, level === 'L4' ? 520 : 480);
+    updateFocusIndicator();
+    updateNodeVisibility();
+    _log('focus', 'level=%s continent=%s node=%s', level, focusState.continent || '-', focusState.nodeId || '-');
   }
 
-  // Secondary focus: zoom into a single node's area (wider view to show context)
-  function focusOnNode(nodeId) {
-    var ne = nodeElements[nodeId];
-    if (!ne) return;
-    var p = ne.pos;
-    var w = 280, h = 180; // wider view to show surrounding nodes
-    var x = p.x - w / 2;
-    var y = p.y - h / 2;
-    // Clamp to map bounds
-    x = Math.max(0, Math.min(1000 - w, x));
-    y = Math.max(0, Math.min(500 - h, y));
-    animateView({ x: x, y: y, w: w, h: h }, 520);
+  function updateNodeVisibility() {
+    var level = focusState.level;
+    var grp, nameSet;
+    if (level === 'L3') {
+      grp = CONTINENT_GROUPS.find(function(g) { return g.key === focusState.continent; });
+      nameSet = (grp || {}).names || [];
+    }
+    Object.keys(nodeElements).forEach(function(id) {
+      var ne = nodeElements[id];
+      if (!ne) return;
+      var node = ne.data;
+      var visible = true;
+      if (level === 'L3') {
+        visible = nameSet.indexOf(node.name) >= 0;
+      } else if (level === 'L4') {
+        visible = (id === focusState.nodeId);
+      }
+      if (ne.circle) {
+        ne.circle.classList.toggle('node-dim', !visible);
+        ne.circle.classList.toggle('node-highlight', level === 'L4' && id === focusState.nodeId);
+      }
+      if (ne.nameLabel) {
+        ne.nameLabel.classList.toggle('node-dim', !visible);
+        if (level === 'L4' && id === focusState.nodeId) {
+          ne.nameLabel.classList.add('node-highlight');
+        } else {
+          ne.nameLabel.classList.remove('node-highlight');
+        }
+      }
+    });
+    if (level === 'L4' && isHighlighted) {
+      highlightNodeLinks(focusState.nodeId);
+    } else {
+      resetLinkHighlight();
+    }
+  }
+
+  function cycleFocusButton() {
+    var order = ['L1', 'L2', 'L3', 'L3', 'L3', 'L1'];
+    var continents = [null, null, 'asia', 'europe', 'north_america', null];
+    var idx;
+    if (focusState.level === 'L1') idx = 0;
+    else if (focusState.level === 'L2') idx = 1;
+    else if (focusState.level === 'L3') {
+      idx = ['asia', 'europe', 'north_america'].indexOf(focusState.continent) + 2;
+    } else { idx = 0; }
+    var next = (idx + 1) % order.length;
+    setFocusLevel(order[next], { continent: continents[next] });
+  }
+
+  function backFocusLevel() {
+    if (focusState.level === 'L4') {
+      if (focusState.continent) setFocusLevel('L3', { continent: focusState.continent });
+      else setFocusLevel('L2');
+    } else if (focusState.level === 'L3') {
+      setFocusLevel('L2');
+    } else if (focusState.level === 'L2') {
+      setFocusLevel('L1');
+    }
+  }
+
+  function updateFocusIndicator() {
+    var el = document.getElementById('focus-indicator');
+    var btn = document.getElementById('focus-btn');
+    if (!el) return;
+    var label;
+    if (focusState.level === 'L1') label = '全部地图';
+    else if (focusState.level === 'L2') label = '全部节点';
+    else if (focusState.level === 'L3') {
+      var g = CONTINENT_GROUPS.find(function(x) { return x.key === focusState.continent; });
+      label = g ? g.label : '区域';
+    } else if (focusState.level === 'L4') {
+      var ne = nodeElements[focusState.nodeId];
+      label = ne ? (ne.data.name_zh || ne.data.name) : '单节点';
+    }
+    el.textContent = label;
+    el.classList.toggle('active', focusState.level !== 'L1');
+    if (btn) btn.classList.toggle('active', focusState.level !== 'L1');
+    updateSidebarActive();
   }
 
   function createSVGElement(tag, attrs) {
     var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (var key in attrs) {
-      el.setAttribute(key, attrs[key]);
-    }
+    for (var key in attrs) { el.setAttribute(key, attrs[key]); }
     return el;
   }
 
+  // ── Node rendering: filled+ring for peered, hollow for unpeered ──
   function renderNodes() {
     nodesGroup.innerHTML = '';
-    pulsesGroup.innerHTML = '';
     nodeElements = {};
+    var _skipped = 0;
 
     nodesData.forEach(function(node) {
-      if (node.lat === null || node.lng === null) return;
-
+      if (node.lat === null || node.lng === null) { _skipped++; return; }
       var pos = project(node.lat, node.lng);
-      var latency = node.online ? node.latency : null;
-      var _class = getLatencyClass(latency);
-      var color = getLatencyColor(_class);
       latencyHistory[node.id] = node.history || [];
 
-      var size = latency === null ? 4 : (latency > 100 ? 9 : latency > 50 ? 7 : 6);
-      var circle = createSVGElement('circle', {
-        'cx': pos.x,
-        'cy': pos.y,
-        'r': size,
-        'fill': color,
-        'class': 'node-dot node-dot-' + _class,
-        'filter': 'url(#glow)'
-      });
+      var peerCount = node.peer_count || 0;
+      var color = getPeerColor(node.online ? peerCount : 0);
+      var size = node.online ? getPeerRadius(peerCount) : 2.2;
+      var hasPeers = node.online && peerCount > 0;
+
+      var circle;
+      if (hasPeers) {
+        circle = createSVGElement('circle', {
+          'cx': pos.x, 'cy': pos.y, 'r': size,
+          'fill': color, 'class': 'node-dot node-dot-peered'
+        });
+      } else if (node.online) {
+        circle = createSVGElement('circle', {
+          'cx': pos.x, 'cy': pos.y, 'r': size,
+          'fill': 'none', 'stroke': '#64748b', 'class': 'node-dot node-dot-hollow'
+        });
+      } else {
+        circle = createSVGElement('circle', {
+          'cx': pos.x, 'cy': pos.y, 'r': size,
+          'fill': 'none', 'stroke': '#475569', 'class': 'node-dot node-dot-offline'
+        });
+      }
       circle.setAttribute('data-node-id', node.id);
       circle.style.cursor = 'pointer';
 
-      if (node.online) {
-        var pulse = createSVGElement('circle', {
-          'cx': pos.x,
-          'cy': pos.y,
-          'r': size,
-          'fill': 'none',
-          'stroke': color,
-          'stroke-width': '1.5',
-          'class': 'node-pulse node-pulse-' + _class
-        });
-        pulse.setAttribute('data-node-id', node.id);
-        pulsesGroup.appendChild(pulse);
-      }
-
-      var label = createSVGElement('text', {
-        'x': pos.x,
-        'y': pos.y - size - 6,
-        'class': 'node-label',
-        'fill': color,
-        'text-anchor': 'middle',
-        'font-size': '9',
-        'font-weight': '600'
-      });
-      label.textContent = latency !== null ? latency + 'ms' : 'OFF';
-      label.setAttribute('data-node-id', node.id);
-      label.style.display = 'none'; // latency labels hidden for cleaner map view
-
       var nameLabel = createSVGElement('text', {
-        'x': pos.x,
-        'y': pos.y + size + 12,
-        'class': 'node-name',
-        'fill': '#aaa',
-        'text-anchor': 'middle',
-        'font-size': '7',
-        'opacity': '0.7'
+        'x': pos.x, 'y': pos.y + size + 7,
+        'class': 'node-name', 'fill': 'rgba(200,210,225,0.85)',
+        'text-anchor': 'middle', 'font-size': '6.5', 'font-weight': '600'
       });
-      nameLabel.textContent = node.name;
+      nameLabel.textContent = getAbbr(node.name);
       nameLabel.setAttribute('data-node-id', node.id);
-      nameLabel.style.display = 'none'; // node names hidden for cleaner map view
+      nameLabel.style.pointerEvents = 'none';
 
       nodesGroup.appendChild(circle);
-      nodesGroup.appendChild(label);
       nodesGroup.appendChild(nameLabel);
 
-      nodeElements[node.id] = {
-        circle: circle,
-        label: label,
-        nameLabel: nameLabel,
-        pos: pos,
-        data: node
-      };
+      nodeElements[node.id] = { circle: circle, ring: null, nameLabel: nameLabel, pos: pos, data: node };
 
-      circle.addEventListener('mouseenter', function(e) { onNodeHover(node.id, e); });
-      circle.addEventListener('mouseleave', function() { hideTooltip(); });
-      circle.addEventListener('click', function(e) { e.stopPropagation(); onNodeClick(node.id); });
+      circle.addEventListener('mouseenter', function(e) { setNodeHover(node.id); onNodeHover(node.id, e); });
+      circle.addEventListener('mouseleave', function() { clearNodeHover(); hideTooltip(); });
+      circle.addEventListener('click', function(e) { e.stopPropagation(); clearNodeHover(); onNodeClick(node.id); });
       circle.addEventListener('mousemove', function(e) { moveTooltip(e); });
     });
+
+    _log('renderNodes', 'total=%d rendered=%d skipped=%d peered=%d',
+      nodesData.length, Object.keys(nodeElements).length, _skipped,
+      nodesData.filter(function(n) { return n.online && (n.peer_count || 0) > 0; }).length);
   }
 
+  // ── Link rendering: single direct curve per link ──
   function renderLinks() {
     linksGroup.innerHTML = '';
-
-    if (!linksData || linksData.length === 0) {
-      drawDefaultConnections();
-      return;
-    }
-
+    if (!linksData || linksData.length === 0) { drawDefaultConnections(); return; }
     linksData.forEach(function(link, idx) {
       var source = project(link.source_lat, link.source_lng);
       var target = project(link.target_lat, link.target_lng);
       var _class = getLatencyClass(link.latency);
       var color = getLatencyColor(_class);
-
-      var midX = (source.x + target.x) / 2;
-      var midY = (source.y + target.y) / 2;
-      var dx = target.x - source.x;
-      var dy = target.y - source.y;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-      // Alternate curve direction by index so parallel links fan out, reducing overlap
-      var sign = (idx % 2 === 0) ? 1 : -1;
-      var offset = dist * 0.15 * sign;
-      var ctrlX = midX - dy * offset / Math.max(dist, 1);
-      var ctrlY = midY + dx * offset / Math.max(dist, 1);
-
-      var path = createSVGElement('path', {
-        'd': 'M ' + source.x + ' ' + source.y + ' Q ' + ctrlX + ' ' + ctrlY + ' ' + target.x + ' ' + target.y,
-        'stroke': color,
-        'stroke-width': '1.0',
-        'fill': 'none',
-        'class': 'link-line link-' + _class,
-        'stroke-opacity': '0.15',
-        'data-source': link.source_id,
-        'data-target': link.target_id,
-        'data-latency': link.latency,
-        'data-label': link.label || ''
-      });
-      path.style.cursor = 'pointer';
-      path.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showLinkTooltip(e, link);
-      });
-
-      linksGroup.appendChild(path);
+      drawLinkPath(link, source, target, idx, _class, color);
     });
+    _log('renderLinks', 'links=%d paths=%d', linksData.length, linksGroup.querySelectorAll('.link-line').length);
+  }
+
+  function drawLinkPath(link, source, target, idx, _class, color) {
+    var midX = (source.x + target.x) / 2;
+    var midY = (source.y + target.y) / 2;
+    var dx = target.x - source.x, dy = target.y - source.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var sign = (idx % 2 === 0) ? 1 : -1;
+    var offset = dist * 0.15 * sign;
+    var ctrlX = midX - dy * offset / Math.max(dist, 1);
+    var ctrlY = midY + dx * offset / Math.max(dist, 1);
+    var path = createSVGElement('path', {
+      'd': 'M ' + source.x + ' ' + source.y + ' Q ' + ctrlX + ' ' + ctrlY + ' ' + target.x + ' ' + target.y,
+      'stroke': color, 'stroke-width': '1.0', 'fill': 'none',
+      'class': 'link-line link-' + _class, 'stroke-opacity': '0.15',
+      'data-source': link.source_id, 'data-target': link.target_id,
+      'data-latency': link.latency, 'data-label': link.label || ''
+    });
+    path.style.cursor = 'pointer';
+    path.addEventListener('click', function(e) { e.stopPropagation(); showLinkTooltip(e, link); });
+    linksGroup.appendChild(path);
   }
 
   function highlightNodeLinks(nodeId) {
-    var paths = linksGroup.querySelectorAll('.link-line');
-    paths.forEach(function(p) {
+    linksGroup.querySelectorAll('.link-line').forEach(function(p) {
       var src = p.getAttribute('data-source');
       var tgt = p.getAttribute('data-target');
       if (src == nodeId || tgt == nodeId) {
         p.setAttribute('stroke-opacity', '0.9');
         p.setAttribute('stroke-width', '2.0');
-        p.style.filter = 'url(#glow)';
+        p.style.filter = 'none';
       } else {
-        p.setAttribute('stroke-opacity', '0.12');
+        p.setAttribute('stroke-opacity', '0.08');
         p.setAttribute('stroke-width', '0.6');
         p.style.filter = 'none';
       }
@@ -456,17 +580,14 @@
   }
 
   function resetLinkHighlight() {
-    var paths = linksGroup.querySelectorAll('.link-line');
-    paths.forEach(function(p) {
+    linksGroup.querySelectorAll('.link-line').forEach(function(p) {
       p.setAttribute('stroke-opacity', '0.15');
       p.setAttribute('stroke-width', '1.0');
       p.style.filter = 'none';
     });
   }
 
-  // ── Link click tooltip: shows A↔B latency when clicking a link line ──
   var linkTooltip = null;
-
   function showLinkTooltip(e, link) {
     if (!linkTooltip) {
       linkTooltip = document.createElement('div');
@@ -477,16 +598,15 @@
     }
     var srcNode = nodesData.find(function(n) { return n.id === link.source_id; });
     var tgtNode = nodesData.find(function(n) { return n.id === link.target_id; });
-    var srcName = srcNode ? srcNode.name : link.source_id;
-    var tgtName = tgtNode ? tgtNode.name : link.target_id;
+    var srcName = srcNode ? (srcNode.name_zh || srcNode.name) : link.source_id;
+    var tgtName = tgtNode ? (tgtNode.name_zh || tgtNode.name) : link.target_id;
     var _class = getLatencyClass(link.latency);
     var color = getLatencyColor(_class);
     linkTooltip.innerHTML =
       '<div class="link-tooltip-header">' + escapeHtml(srcName) + ' &harr; ' + escapeHtml(tgtName) + '</div>' +
-      '<div class="link-tooltip-row"><span>Latency</span><span style="color:' + color + ';font-weight:600">' + link.latency + ' ms</span></div>' +
-      '<div class="link-tooltip-row"><span>Quality</span><span>' + getLatencyLabel(_class) + '</span></div>';
+      '<div class="link-tooltip-row"><span>延迟</span><span style="color:' + color + ';font-weight:600">' + link.latency + ' ms</span></div>' +
+      '<div class="link-tooltip-row"><span>质量</span><span>' + getLatencyLabel(_class) + '</span></div>';
     linkTooltip.style.display = 'block';
-    // Position near the click point, relative to the map wrapper
     var wrapper = linkTooltip.parentElement;
     if (wrapper) {
       var wrapperRect = wrapper.getBoundingClientRect();
@@ -507,50 +627,60 @@
       for (var j = i + 1; j < onlineNodes.length; j++) {
         var s = project(onlineNodes[i].lat, onlineNodes[i].lng);
         var t = project(onlineNodes[j].lat, onlineNodes[j].lng);
-        var midX = (s.x + t.x) / 2;
-        var midY = (s.y + t.y) / 2;
+        var midX = (s.x + t.x) / 2, midY = (s.y + t.y) / 2;
         var dx = t.x - s.x, dy = t.y - s.y;
         var dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 200) {
           var offset = dist * 0.2;
           var ctrlX = midX - dy * offset / Math.max(dist, 1);
           var ctrlY = midY + dx * offset / Math.max(dist, 1);
-          var path = createSVGElement('path', {
+          linksGroup.appendChild(createSVGElement('path', {
             'd': 'M ' + s.x + ' ' + s.y + ' Q ' + ctrlX + ' ' + ctrlY + ' ' + t.x + ' ' + t.y,
-            'stroke': '#3a7bd5',
-            'stroke-width': '0.9',
-            'fill': 'none',
-            'stroke-opacity': '0.45',
-            'stroke-dasharray': '4 4'
-          });
-          linksGroup.appendChild(path);
+            'stroke': '#3a7bd5', 'stroke-width': '0.9', 'fill': 'none',
+            'stroke-opacity': '0.45', 'stroke-dasharray': '4 4'
+          }));
         }
       }
     }
   }
 
+  // ── Tooltip ──
+  // Visual hover highlight — works independently of tooltip (which is suppressed
+  // when a node is selected). Provides smooth CSS-transitioned feedback.
+  var hoveredNode = null;
+  function setNodeHover(nodeId) {
+    if (hoveredNode === nodeId) return;
+    clearNodeHover();
+    hoveredNode = nodeId;
+  }
+  function clearNodeHover() {
+    hoveredNode = null;
+  }
+
   function onNodeHover(nodeId, e) {
-    if (isHighlighted) return; // suppress hover tooltip while the detail panel is open
+    if (isHighlighted) return;
     var ne = nodeElements[nodeId];
     if (!ne) return;
     var node = ne.data;
     var latency = node.online ? node.latency : null;
-    var _class = getLatencyClass(latency);
-    var color = getLatencyColor(_class);
+    var latClass = getLatencyClass(latency);
+    var latColor = getLatencyColor(latClass);
+    var peerCount = node.peer_count || 0;
+    var pColor = getPeerColor(node.online ? peerCount : 0);
     var history = latencyHistory[nodeId] || [];
 
-    document.getElementById('tooltip-name').textContent = node.name;
+    document.getElementById('tooltip-name').textContent = node.name_zh || node.name;
     var statusEl = document.getElementById('tooltip-status');
-    statusEl.textContent = getLatencyLabel(_class);
-    statusEl.style.color = color;
+    statusEl.textContent = peerCount > 0 ? peerCount + ' Peer' : '无 Peer';
+    statusEl.style.color = pColor;
     document.getElementById('tooltip-location').textContent = node.location || '—';
+    var peersEl = document.getElementById('tooltip-peers');
+    peersEl.textContent = node.online ? peerCount + ' 个' : '离线';
+    peersEl.style.color = pColor;
     var latEl = document.getElementById('tooltip-latency');
-    latEl.textContent = latency !== null ? latency + ' ms' : 'Offline';
-    latEl.style.color = color;
-
-    var chartContainer = document.getElementById('tooltip-chart');
-    chartContainer.innerHTML = renderMiniBarChart(history, latency);
-
+    latEl.textContent = latency !== null ? latency + ' ms' : '离线';
+    latEl.style.color = latColor;
+    document.getElementById('tooltip-chart').innerHTML = renderMiniBarChart(history, latency);
     tooltip.style.display = 'block';
     moveTooltip(e);
   }
@@ -558,21 +688,13 @@
   function moveTooltip(e) {
     var rect = svg.getBoundingClientRect();
     var x, y;
-    if (e && e.clientX) {
-      x = e.clientX - rect.left;
-      y = e.clientY - rect.top;
-    } else {
+    if (e && e.clientX) { x = e.clientX - rect.left; y = e.clientY - rect.top; }
+    else {
       var ne = nodeElements[isHighlighted];
-      if (ne) {
-        var p = svgToScreen(ne.pos.x, ne.pos.y);
-        x = p.x;
-        y = p.y;
-      } else return;
+      if (ne) { var p = svgToScreen(ne.pos.x, ne.pos.y); x = p.x; y = p.y; } else return;
     }
-    var tw = tooltip.offsetWidth || 200;
-    var th = tooltip.offsetHeight || 150;
-    var tx = x + 15;
-    var ty = y - th / 2;
+    var tw = tooltip.offsetWidth || 200, th = tooltip.offsetHeight || 150;
+    var tx = x + 15, ty = y - th / 2;
     if (tx + tw > rect.width) tx = x - tw - 15;
     if (ty < 0) ty = 5;
     if (ty + th > rect.height) ty = rect.height - th - 5;
@@ -580,39 +702,7 @@
     tooltip.style.top = ty + 'px';
   }
 
-  function hideTooltip() {
-    tooltip.style.display = 'none';
-  }
-
-  function deselectNode() {
-    if (detailPanel) detailPanel.style.display = 'none';
-    hideLinkTooltip();
-    resetLinkHighlight();
-    isHighlighted = null;
-    // Return to first-level focus (all nodes), not full world
-    if (isFocused) focusOnNodes();
-  }
-
-  function onNodeClick(nodeId) {
-    if (isHighlighted === nodeId) {
-      deselectNode();
-      return;
-    }
-    isHighlighted = nodeId;
-    hideTooltip();
-
-    var ne = nodeElements[nodeId];
-    if (!ne) return;
-    var node = ne.data;
-    var latency = node.online ? node.latency : null;
-    var _class = getLatencyClass(latency);
-    var color = getLatencyColor(_class);
-    var history = latencyHistory[nodeId] || [];
-
-    highlightNodeLinks(nodeId);
-    showNodeDetail(node, latency, _class, color, history);
-    focusOnNode(nodeId); // secondary focus: zoom into this node's area
-  }
+  function hideTooltip() { tooltip.style.display = 'none'; }
 
   function renderMiniBarChart(history, currentLatency) {
     if (!history || history.length === 0) return '';
@@ -621,21 +711,42 @@
     var minV = Math.min.apply(null, history.concat([currentLatency || 0]));
     var range = maxV - minV || 1;
     var w = history.length * (barW + gap) - gap;
-
     var svgStr = '<svg width="' + w + '" height="' + h + '" class="mini-chart">';
     for (var i = 0; i < history.length; i++) {
       var val = history[i];
       var hClass = getLatencyClass(val);
       var barH = Math.max(3, ((val - minV) / range) * (h - 6));
-      var x = i * (barW + gap);
-      var y = h - barH - 2;
+      var x = i * (barW + gap), y = h - barH - 2;
       svgStr += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="2" class="mini-bar mini-bar-' + hClass + '"/>';
     }
-    svgStr += '</svg>';
-    return svgStr;
+    return svgStr + '</svg>';
   }
 
-  // ─── Node detail panel (created once, updated in place) ───
+  // ── Node click → L4 focus ──
+  function onNodeClick(nodeId) {
+    if (isHighlighted === nodeId) { deselectNode(); return; }
+    isHighlighted = nodeId;
+    hideTooltip();
+    var ne = nodeElements[nodeId];
+    if (!ne) return;
+    var node = ne.data;
+    var latency = node.online ? node.latency : null;
+    var peerCount = node.peer_count || 0;
+    var pColor = getPeerColor(node.online ? peerCount : 0);
+    showNodeDetail(node, latency, peerCount, pColor, latencyHistory[nodeId] || []);
+    setFocusLevel('L4', { nodeId: nodeId, continent: focusState.continent });
+  }
+
+  function deselectNode() {
+    if (detailPanel) detailPanel.style.display = 'none';
+    hideLinkTooltip();
+    resetLinkHighlight();
+    clearNodeHover();
+    isHighlighted = null;
+    backFocusLevel();
+  }
+
+  // ── Detail panel ──
   var detailPanel = null;
 
   function ensureDetailPanel() {
@@ -648,24 +759,22 @@
         '<span class="detail-name"></span>' +
         '<span class="detail-header-right">' +
           '<span class="detail-status"></span>' +
-          '<button class="detail-close" type="button" aria-label="Close">&times;</button>' +
+          '<button class="detail-close" type="button" aria-label="关闭">&times;</button>' +
         '</span>' +
       '</div>' +
       '<div class="detail-body">' +
-        '<div class="detail-row"><span class="detail-label">Location</span><span class="detail-value detail-loc"></span></div>' +
-        '<div class="detail-row"><span class="detail-label">Avg Latency</span><span class="detail-value detail-lat"></span></div>' +
+        '<div class="detail-row"><span class="detail-label">位置</span><span class="detail-value detail-loc"></span></div>' +
+        '<div class="detail-row"><span class="detail-label">Peer 数</span><span class="detail-value detail-peers"></span></div>' +
+        '<div class="detail-row"><span class="detail-label">平均延迟</span><span class="detail-value detail-lat"></span></div>' +
       '</div>' +
       '<div class="peer-latency-section">' +
         '<div class="peer-latency-title"></div>' +
         '<div class="peer-latency-list"></div>' +
       '</div>';
     document.querySelector('.ospf-svg-wrapper').appendChild(detailPanel);
-    // Close button — listener attached once and survives auto-refresh
     detailPanel.querySelector('.detail-close').addEventListener('click', function(e) {
-      e.stopPropagation();
-      deselectNode();
+      e.stopPropagation(); deselectNode();
     });
-    // Clicks inside the panel must not bubble to the document-level close handler
     detailPanel.addEventListener('click', function(e) { e.stopPropagation(); });
     return detailPanel;
   }
@@ -682,7 +791,7 @@
         if (peerNode) {
           var pClass = getLatencyClass(peerLatency);
           peerList.push({
-            name: peerNode.name, location: peerNode.location || '',
+            name: peerNode.name_zh || peerNode.name, location: peerNode.location || '',
             latency: peerLatency, _class: pClass, color: getLatencyColor(pClass)
           });
         }
@@ -722,55 +831,28 @@
     detailPanel.style.top = top + 'px';
   }
 
-  function showNodeDetail(node, latency, _class, color, history) {
+  function showNodeDetail(node, latency, peerCount, pColor, history) {
     ensureDetailPanel();
-    detailPanel.querySelector('.detail-name').textContent = node.name;
+    detailPanel.querySelector('.detail-name').textContent = node.name_zh || node.name;
     var statusEl = detailPanel.querySelector('.detail-status');
-    statusEl.textContent = getLatencyLabel(_class);
-    statusEl.className = 'detail-status status-' + _class;
+    statusEl.textContent = peerCount > 0 ? peerCount + ' Peer' : '无 Peer';
+    statusEl.style.color = pColor;
     detailPanel.querySelector('.detail-loc').textContent = node.location || '—';
+    var peersEl = detailPanel.querySelector('.detail-peers');
+    peersEl.textContent = peerCount + ' 个';
+    peersEl.style.color = pColor;
     var latEl = detailPanel.querySelector('.detail-lat');
-    latEl.textContent = latency !== null ? latency + ' ms' : 'Offline';
-    latEl.style.color = color;
+    latEl.textContent = latency !== null ? latency + ' ms' : '离线';
+    latEl.style.color = getLatencyColor(getLatencyClass(latency));
     var peerList = buildPeerList(node.id);
     detailPanel.querySelector('.peer-latency-title').textContent =
-      'Latency to other nodes (' + peerList.length + ')';
+      '到其他节点延迟 (' + peerList.length + ')';
     renderPeerList(detailPanel.querySelector('.peer-latency-list'), peerList);
     detailPanel.style.display = 'block';
     positionDetailPanel(node.id);
   }
 
-  function renderFullBarChart(history, currentLatency) {
-    if (!history || history.length === 0) return '';
-    var barW = 28, gap = 8, h = 100, pad = 10;
-    var maxV = Math.max.apply(null, history.concat([currentLatency || 0]));
-    var minV = Math.min.apply(null, history.concat([currentLatency || 0]));
-    var range = maxV - minV || 1;
-    var w = history.length * (barW + gap) - gap;
-    var usableH = h - pad * 2;
-
-    var svgStr = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">';
-    for (var gi = 0; gi <= 3; gi++) {
-      var y = pad + (usableH * gi / 3);
-      svgStr += '<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y + '" class="full-grid"/>';
-    }
-    for (var i = 0; i < history.length; i++) {
-      var val = history[i];
-      var hClass = getLatencyClass(val);
-      var barH = Math.max(5, ((val - minV) / range) * usableH);
-      var x = i * (barW + gap);
-      var y = h - pad - barH;
-      var isCurrent = (i === history.length - 1);
-      svgStr += '<g>';
-      svgStr += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="4" ry="4" class="full-bar full-bar-' + hClass + (isCurrent ? ' full-bar-current' : '') + '"/>';
-      svgStr += '<text x="' + (x + barW / 2) + '" y="' + (y - 4) + '" class="full-bar-value" text-anchor="middle">' + val + '</text>';
-      svgStr += '<text x="' + (x + barW / 2) + '" y="' + (h - 2) + '" class="full-bar-label" text-anchor="middle">#' + (i + 1) + '</text>';
-      svgStr += '</g>';
-    }
-    svgStr += '</svg>';
-    return svgStr;
-  }
-
+  // ── Latency update (auto-refresh, no jitter, no pulse) ──
   function updateLatency() {
     var now = new Date();
     var lastUpdateEl = document.getElementById('last-update');
@@ -780,55 +862,29 @@
         String(now.getMinutes()).padStart(2, '0') + ':' +
         String(now.getSeconds()).padStart(2, '0');
     }
-
     var latencies = [];
     nodesData.forEach(function(node) {
       if (!node.online || node.lat === null) return;
       var history = latencyHistory[node.id] || [];
-      var lastLatency = history.length > 0 ? history[history.length - 1] : (node.latency || 30);
-      var delta = (Math.random() - 0.4) * 8;
-      var currentLatency = Math.max(1, Math.round(lastLatency + delta));
+      var baseLatency = node.latency || 30;
+      var lastLatency = history.length > 0 ? history[history.length - 1] : baseLatency;
+      var pull = (baseLatency - lastLatency) * 0.3;
+      var noise = (Math.random() - 0.5) * 8;
+      var currentLatency = Math.max(1, Math.round(lastLatency + pull + noise));
       history.push(currentLatency);
       if (history.length > 5) history.shift();
       latencyHistory[node.id] = history;
-
-      if (nodeElements[node.id]) {
-        var ne = nodeElements[node.id];
-        var _class = getLatencyClass(currentLatency);
-        var color = getLatencyColor(_class);
-        var size = currentLatency > 100 ? 9 : currentLatency > 50 ? 7 : 6;
-        ne.circle.setAttribute('r', size);
-        ne.circle.setAttribute('fill', color);
-        ne.circle.setAttribute('class', 'node-dot node-dot-' + _class);
-        ne.label.setAttribute('y', ne.pos.y - size - 6);
-        ne.label.setAttribute('fill', color);
-        ne.label.textContent = currentLatency + 'ms';
-        var pulseEl = pulsesGroup.querySelector('[data-node-id="' + node.id + '"]');
-        if (pulseEl) {
-          pulseEl.setAttribute('stroke', color);
-          pulseEl.setAttribute('class', 'node-pulse node-pulse-' + _class);
-        }
-      }
-
       latencies.push(currentLatency);
     });
-
     updateStats(latencies);
-
-    // Update detail panel in place (no rebuild → preserves scroll position & close button)
     if (isHighlighted && detailPanel && detailPanel.style.display !== 'none') {
       var ne = nodeElements[isHighlighted];
       if (ne) {
         var node = ne.data;
         var lat = node.online ? (latencyHistory[node.id] || []).slice(-1)[0] : null;
-        var cls = getLatencyClass(lat);
-        var clr = getLatencyColor(cls);
-        var statusEl = detailPanel.querySelector('.detail-status');
-        statusEl.textContent = getLatencyLabel(cls);
-        statusEl.className = 'detail-status status-' + cls;
         var latEl = detailPanel.querySelector('.detail-lat');
-        latEl.textContent = lat !== null ? lat + ' ms' : 'Offline';
-        latEl.style.color = clr;
+        latEl.textContent = lat !== null ? lat + ' ms' : '离线';
+        latEl.style.color = getLatencyColor(getLatencyClass(lat));
       }
     }
   }
@@ -841,16 +897,275 @@
       return;
     }
     var sum = 0, max = 0, min = Infinity;
-    latencies.forEach(function(l) {
-      sum += l;
-      if (l > max) max = l;
-      if (l < min) min = l;
-    });
+    latencies.forEach(function(l) { sum += l; if (l > max) max = l; if (l < min) min = l; });
     document.getElementById('avg-latency').innerHTML = Math.round(sum / latencies.length) + '<span class="ospf-stat-unit">ms</span>';
     document.getElementById('max-latency').innerHTML = max + '<span class="ospf-stat-unit">ms</span>';
     document.getElementById('min-latency').innerHTML = min + '<span class="ospf-stat-unit">ms</span>';
   }
 
+  // ── Sidebar: continent switch + node list ──
+  function populateSidebar() {
+    var contEl = document.getElementById('sidebar-continents');
+    var nodeEl = document.getElementById('sidebar-nodes');
+    if (!contEl || !nodeEl) return;
+
+    // Continents
+    contEl.innerHTML = '';
+    var allBtn = createSidebarBtn('全部', 'all');
+    allBtn.addEventListener('click', function() { setFocusLevel('L2'); });
+    contEl.appendChild(allBtn);
+    CONTINENT_GROUPS.forEach(function(g) {
+      var btn = createSidebarBtn(g.label, g.key);
+      btn.addEventListener('click', function() { setFocusLevel('L3', { continent: g.key }); });
+      contEl.appendChild(btn);
+    });
+
+    // Nodes (grouped by continent, abbr displayed)
+    nodeEl.innerHTML = '';
+    var grouped = {};
+    nodesData.forEach(function(n) {
+      var cKey = continentOf(n.name);
+      if (!grouped[cKey]) grouped[cKey] = [];
+      grouped[cKey].push(n);
+    });
+    CONTINENT_GROUPS.forEach(function(g) {
+      var list = grouped[g.key] || [];
+      if (list.length === 0) return;
+      var header = document.createElement('div');
+      header.className = 'sidebar-node-group';
+      header.textContent = g.label;
+      nodeEl.appendChild(header);
+      list.forEach(function(n) {
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'sidebar-node-item';
+        item.setAttribute('data-node-id', n.id);
+        var peerCount = n.peer_count || 0;
+        var dot = '<span class="sb-node-dot" style="background:' + getPeerColor(n.online ? peerCount : 0) + '"></span>';
+        item.innerHTML = dot + '<span class="sb-node-abbr">' + getAbbr(n.name) + '</span>' +
+          '<span class="sb-node-count">' + (n.online ? peerCount : '—') + '</span>';
+        item.addEventListener('click', function() { onNodeClick(n.id); });
+        nodeEl.appendChild(item);
+      });
+    });
+    updateSidebarActive();
+  }
+
+  function createSidebarBtn(label, key) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sidebar-continent-btn';
+    btn.setAttribute('data-continent', key);
+    btn.textContent = label;
+    return btn;
+  }
+
+  function continentOf(name) {
+    for (var i = 0; i < CONTINENT_GROUPS.length; i++) {
+      if (CONTINENT_GROUPS[i].names.indexOf(name) >= 0) return CONTINENT_GROUPS[i].key;
+    }
+    return 'other';
+  }
+
+  function updateSidebarActive() {
+    var contBtns = document.querySelectorAll('.sidebar-continent-btn');
+    contBtns.forEach(function(b) {
+      var key = b.getAttribute('data-continent');
+      var active = (focusState.level === 'L2' && key === 'all') ||
+                   (focusState.level === 'L3' && key === focusState.continent);
+      b.classList.toggle('active', active);
+    });
+    var nodeItems = document.querySelectorAll('.sidebar-node-item');
+    nodeItems.forEach(function(it) {
+      var id = it.getAttribute('data-node-id');
+      it.classList.toggle('active', focusState.level === 'L4' && String(focusState.nodeId) === String(id));
+    });
+  }
+
+  // ── Touch gestures (mobile) ──
+  var touchState = { mode: null, startX: 0, startY: 0, lastX: 0, lastY: 0,
+                     startVx: 0, startVy: 0, startW: 0, startH: 0,
+                     startDist: 0, startMidX: 0, startMidY: 0,
+                     touchStart: 0, moved: false, longPressTimer: null,
+                     tapStartTime: 0, lastTapTime: 0,
+                     singleTouchTargetId: null };
+
+  function touchDistance(t1, t2) {
+    var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function touchMidpoint(t1, t2) {
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  }
+  function screenToSvg(sx, sy) {
+    var rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0, scale: 1 };
+    var scale = Math.max(rect.width / currentView.w, rect.height / currentView.h);
+    var renderedW = currentView.w * scale, renderedH = currentView.h * scale;
+    var offsetX = (rect.width - renderedW) / 2, offsetY = (rect.height - renderedH) / 2;
+    return {
+      x: currentView.x + (sx - rect.left - offsetX) / scale,
+      y: currentView.y + (sy - rect.top - offsetY) / scale,
+      scale: scale
+    };
+  }
+  function applyViewConstrained(v) {
+    var overX = v.w * 0.15, overY = v.h * 0.15;
+    v.x = Math.max(-overX, Math.min(1000 - v.w + overX, v.x));
+    v.y = Math.max(-overY, Math.min(500 - v.h + overY, v.y));
+    if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; }
+    applyView(v);
+  }
+
+  // ── Touch gesture handlers (named for cleanup) ──
+  var touchStartHandler = function(e) {
+    if (e.touches.length === 1) {
+      var t = e.touches[0];
+      touchState.mode = 'pan';
+      touchState.startX = t.clientX; touchState.startY = t.clientY;
+      touchState.lastX = t.clientX; touchState.lastY = t.clientY;
+      touchState.startVx = currentView.x; touchState.startVy = currentView.y;
+      touchState.startW = currentView.w; touchState.startH = currentView.h;
+      touchState.moved = false;
+      touchState.touchStart = Date.now();
+      var el = document.elementFromPoint(t.clientX, t.clientY);
+      touchState.singleTouchTargetId = el && el.closest ?
+        (el.closest('[data-node-id]') ? el.closest('[data-node-id]').getAttribute('data-node-id') : null)
+        : null;
+      if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); }
+      touchState.longPressTimer = setTimeout(function() {
+        if (touchState.mode === 'pan' && !touchState.moved) {
+          var svgP = screenToSvg(touchState.startX, touchState.startY);
+          var nearestNode = findNearestNode(svgP.x, svgP.y);
+          if (nearestNode) {
+            clearNodeHover();
+            onNodeClick(nearestNode.id);
+          }
+        }
+      }, 450);
+    } else if (e.touches.length === 2) {
+      if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); touchState.longPressTimer = null; }
+      touchState.mode = 'pinch';
+      var t1 = e.touches[0], t2 = e.touches[1];
+      touchState.startDist = touchDistance(t1, t2);
+      var mid = touchMidpoint(t1, t2);
+      touchState.startMidX = mid.x; touchState.startMidY = mid.y;
+      touchState.startVx = currentView.x; touchState.startVy = currentView.y;
+      touchState.startW = currentView.w; touchState.startH = currentView.h;
+      touchState.moved = false;
+    }
+  };
+
+  var touchMoveHandler = function(e) {
+    e.preventDefault();
+    if (touchState.mode === 'pan' && e.touches.length === 1) {
+      var t = e.touches[0];
+      var dx = t.clientX - touchState.startX;
+      var dy = t.clientY - touchState.startY;
+      if (!touchState.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+        touchState.moved = true;
+        if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); touchState.longPressTimer = null; }
+      }
+      if (touchState.moved) {
+        var rect = svg.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        var scale = Math.max(rect.width / currentView.w, rect.height / currentView.h);
+        applyViewConstrained({
+          x: touchState.startVx - dx / scale,
+          y: touchState.startVy - dy / scale,
+          w: currentView.w, h: currentView.h
+        });
+        touchState.lastX = t.clientX; touchState.lastY = t.clientY;
+      }
+    } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+      var t1 = e.touches[0], t2 = e.touches[1];
+      var dist = touchDistance(t1, t2);
+      if (touchState.startDist <= 0) return;
+      var ratio = dist / touchState.startDist;
+      var newW = Math.max(100, Math.min(1400, touchState.startW / ratio));
+      var newH = newW / (touchState.startW / touchState.startH);
+      var mid = touchMidpoint(t1, t2);
+      var rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      var scale = Math.max(rect.width / touchState.startW, rect.height / touchState.startH);
+      var midSvgX = touchState.startVx + (touchState.startMidX - rect.left) / scale;
+      var midSvgY = touchState.startVy + (touchState.startMidY - rect.top) / scale;
+      var newX = midSvgX - (midSvgX - touchState.startVx) * (newW / touchState.startW);
+      var newY = midSvgY - (midSvgY - touchState.startVy) * (newH / touchState.startH);
+      applyViewConstrained({ x: newX, y: newY, w: newW, h: newH });
+      touchState.moved = true;
+    }
+  };
+
+  var touchEndHandler = function(e) {
+    if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); touchState.longPressTimer = null; }
+    if (touchState.mode === 'pan' && !touchState.moved && e.changedTouches.length === 1) {
+      var t = e.changedTouches[0];
+      var now = Date.now();
+      var isDoubleTap = now - touchState.lastTapTime < 300;
+      touchState.lastTapTime = now;
+      if (isDoubleTap) {
+        var svgP = screenToSvg(t.clientX, t.clientY);
+        var zoomFactor = 1.8;
+        var aspect = currentView.w / currentView.h;
+        var newW = Math.max(100, currentView.w / zoomFactor);
+        var newH = newW / aspect;
+        var newX = svgP.x - (svgP.x - currentView.x) * (newW / currentView.w);
+        var newY = svgP.y - (svgP.y - currentView.y) * (newH / currentView.h);
+        applyViewConstrained({ x: newX, y: newY, w: newW, h: newH });
+      } else {
+        var svgP2 = screenToSvg(t.clientX, t.clientY);
+        var nearestNode = findNearestNode(svgP2.x, svgP2.y);
+        if (nearestNode) {
+          clearNodeHover();
+          onNodeClick(nearestNode.id);
+        } else {
+          clearNodeHover();
+          if (!isHighlighted) {
+            if (linkTooltip && linkTooltip.style.display !== 'none') hideLinkTooltip();
+          } else {
+            var targetEl = document.elementFromPoint(t.clientX, t.clientY);
+            if (!targetEl || !targetEl.closest('.node-detail-panel')) deselectNode();
+          }
+        }
+      }
+    } else if (touchState.mode === 'pinch' && touchState.moved && e.touches.length === 1) {
+      var t = e.changedTouches[0];
+      touchState.startX = t.clientX; touchState.startY = t.clientY;
+      touchState.startVx = currentView.x; touchState.startVy = currentView.y;
+      touchState.startW = currentView.w; touchState.startH = currentView.h;
+      touchState.mode = 'pan';
+      touchState.moved = false;
+    }
+    touchState.mode = null;
+  };
+
+  var touchCancelHandler = function() {
+    if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); touchState.longPressTimer = null; }
+    touchState.mode = null;
+  };
+
+  svg.addEventListener('touchstart', touchStartHandler, { passive: true });
+  svg.addEventListener('touchmove', touchMoveHandler, { passive: false });
+  svg.addEventListener('touchend', touchEndHandler);
+  svg.addEventListener('touchcancel', touchCancelHandler);
+
+  function findNearestNode(svgX, svgY) {
+    var best = null, bestDist = 18;
+    var keys = Object.keys(nodeElements);
+    for (var i = 0; i < keys.length; i++) {
+      var ne = nodeElements[keys[i]];
+      var dx = svgX - ne.pos.x, dy = svgY - ne.pos.y;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bestDist) { bestDist = d; best = ne; }
+    }
+    return best;
+  }
+
+  // ── Mouse interaction state ──
+  var mouseState = { dragging: false, dragMoved: false, dragStart: { x: 0, y: 0, vx: 0, vy: 0 } };
+
+  // ── Controls ──
   var autoRefresh = true;
   var refreshInterval;
 
@@ -860,51 +1175,221 @@
   autoBtn.addEventListener('click', function() {
     autoRefresh = !autoRefresh;
     autoBtn.classList.toggle('active');
-    if (autoRefresh) startAutoRefresh();
-    else stopAutoRefresh();
+    if (autoRefresh) startAutoRefresh(); else stopAutoRefresh();
   });
 
-  // Focus / reset view toggle — zooms into the region containing nodes, or back to full world
-  var focusBtn = document.getElementById('focus-btn');
-  function setFocusState(focused) {
-    isFocused = focused;
-    focusBtn.classList.toggle('active', focused);
-    focusBtn.title = focused ? 'Reset view' : 'Focus nodes';
-    focusBtn.setAttribute('data-i18n-placeholder', focused ? 'admin.reset_view' : 'admin.focus_nodes');
-    if (window.applyTranslations) applyTranslations();
-  }
-  focusBtn.addEventListener('click', function() {
-    if (isFocused) { resetView(); setFocusState(false); }
-    else { focusOnNodes(); setFocusState(true); }
-  });
+  document.getElementById('focus-btn').addEventListener('click', cycleFocusButton);
 
-  var jitterBtn = document.getElementById('jitter-btn');
-  jitterBtn.addEventListener('click', function() {
-    if (jitterActive) stopJitter();
-    else startJitter();
-  });
+  // ── Named event handlers (for cleanup on unload) ──
+  var wheelHandler = function(e) {
+    e.preventDefault();
+    var delta = e.deltaY > 0 ? 1.08 : 0.92;
+    var rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    var scale = Math.max(rect.width / currentView.w, rect.height / currentView.h);
+    var renderedW = currentView.w * scale, renderedH = currentView.h * scale;
+    var offsetX = (rect.width - renderedW) / 2, offsetY = (rect.height - renderedH) / 2;
+    var mx = e.clientX - rect.left - offsetX;
+    var my = e.clientY - rect.top - offsetY;
+    var svgX = currentView.x + mx / scale;
+    var svgY = currentView.y + my / scale;
+    var aspect = currentView.w / currentView.h;
+    var rawW = currentView.w * delta;
+    var newW = Math.max(60, Math.min(1400, rawW));
+    var newH = newW / aspect;
+    if (newH < 30) { newH = 30; newW = newH * aspect; }
+    if (newH > 700) { newH = 700; newW = newH * aspect; }
+    var ratioW = newW / currentView.w;
+    var ratioH = newH / currentView.h;
+    var newX = svgX - (svgX - currentView.x) * ratioW;
+    var newY = svgY - (svgY - currentView.y) * ratioH;
+    var overscrollX = newW * 0.12, overscrollY = newH * 0.12;
+    newX = Math.max(-overscrollX, Math.min(1000 - newW + overscrollX, newX));
+    newY = Math.max(-overscrollY, Math.min(500 - newH + overscrollY, newY));
+    if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; }
+    applyView({ x: newX, y: newY, w: newW, h: newH });
+  };
 
-  // Close the detail panel / link tooltip when clicking outside
-  document.addEventListener('click', function(e) {
-    // Hide link tooltip on any outside click
+  var mouseDownHandler = function(e) {
+    if (e.target.closest('[data-node-id]') || e.target.closest('.link-line')) return;
+    mouseState.dragging = true;
+    mouseState.dragMoved = false;
+    mouseState.dragStart = { x: e.clientX, y: e.clientY, vx: currentView.x, vy: currentView.y };
+    svg.style.cursor = 'grabbing';
+  };
+
+  var mouseMoveHandler = function(e) {
+    if (!mouseState.dragging) return;
+    var dx = e.clientX - mouseState.dragStart.x;
+    var dy = e.clientY - mouseState.dragStart.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) mouseState.dragMoved = true;
+    var rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    var scale = Math.max(rect.width / currentView.w, rect.height / currentView.h);
+    var newVx = mouseState.dragStart.vx - dx / scale;
+    var newVy = mouseState.dragStart.vy - dy / scale;
+    var overX = currentView.w * 0.15, overY = currentView.h * 0.15;
+    newVx = Math.max(-overX, Math.min(1000 - currentView.w + overX, newVx));
+    newVy = Math.max(-overY, Math.min(500 - currentView.h + overY, newVy));
+    if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; }
+    applyView({ x: newVx, y: newVy, w: currentView.w, h: currentView.h });
+  };
+
+  var mouseUpHandler = function() {
+    if (mouseState.dragging) {
+      mouseState.dragging = false;
+      svg.style.cursor = '';
+    }
+  };
+
+  var clickHandler = function(e) {
+    if (mouseState.dragMoved) { mouseState.dragMoved = false; return; }
     if (linkTooltip && linkTooltip.style.display !== 'none' && !linkTooltip.contains(e.target)) {
       hideLinkTooltip();
     }
     if (!isHighlighted) return;
     if (detailPanel && detailPanel.contains(e.target)) return;
-    if (e.target.closest('[data-node-id]')) return;   // let onNodeClick handle node clicks
-    if (e.target.closest('.link-line')) return;        // let link click handler work
-    if (e.target.closest('.ospf-map-controls')) return; // don't close when using map controls
+    if (e.target.closest('[data-node-id]')) return;
+    if (e.target.closest('.link-line')) return;
+    if (e.target.closest('.ospf-map-controls')) return;
+    if (e.target.closest('.map-sidebar')) return;
     deselectNode();
-  });
-  // Escape key also closes the panel / tooltip
-  document.addEventListener('keydown', function(e) {
+  };
+
+  var keyDownHandler = function(e) {
     if (e.key === 'Escape') {
       if (linkTooltip && linkTooltip.style.display !== 'none') { hideLinkTooltip(); return; }
       if (isHighlighted) deselectNode();
     }
-  });
+  };
 
+  var resizeHandler = function() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      if (focusState.level === 'L1') setFocusLevel('L1');
+      else if (focusState.level === 'L2') setFocusLevel('L2');
+      else if (focusState.level === 'L3') setFocusLevel('L3', { continent: focusState.continent });
+      else if (focusState.level === 'L4') {
+        setFocusLevel('L4', { nodeId: focusState.nodeId, continent: focusState.continent });
+      }
+      if (isHighlighted && detailPanel && detailPanel.style.display !== 'none') {
+        positionDetailPanel(isHighlighted);
+      }
+    }, 200);
+  };
+
+  var visibilityHandler = function() {
+    if (document.hidden) {
+      stopAutoRefresh();
+      _log('visibility', 'page hidden — auto-refresh paused');
+    } else if (autoRefresh) {
+      startAutoRefresh();
+      _log('visibility', 'page visible — auto-refresh resumed');
+    }
+  };
+
+  var beforeUnloadHandler = function() { cleanup(); };
+
+  // Register all handlers
+  svg.addEventListener('wheel', wheelHandler, { passive: false });
+  svg.addEventListener('mousedown', mouseDownHandler);
+  document.addEventListener('mousemove', mouseMoveHandler);
+  document.addEventListener('mouseup', mouseUpHandler);
+  document.addEventListener('click', clickHandler);
+  document.addEventListener('keydown', keyDownHandler);
+  window.addEventListener('resize', resizeHandler);
+  document.addEventListener('visibilitychange', visibilityHandler);
+  window.addEventListener('beforeunload', beforeUnloadHandler);
+
+  // ── Cleanup: remove all listeners, timers, rAF on unload ──
+  var cleanupDone = false;
+  function cleanup() {
+    if (cleanupDone) return;
+    cleanupDone = true;
+    _log('cleanup', 'releasing all event listeners, timers, and rAF');
+    stopAutoRefresh();
+    if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; }
+    svg.removeEventListener('wheel', wheelHandler);
+    svg.removeEventListener('mousedown', mouseDownHandler);
+    svg.removeEventListener('touchstart', touchStartHandler);
+    svg.removeEventListener('touchmove', touchMoveHandler);
+    svg.removeEventListener('touchend', touchEndHandler);
+    svg.removeEventListener('touchcancel', touchCancelHandler);
+    document.removeEventListener('mousemove', mouseMoveHandler);
+    document.removeEventListener('mouseup', mouseUpHandler);
+    document.removeEventListener('click', clickHandler);
+    document.removeEventListener('keydown', keyDownHandler);
+    window.removeEventListener('resize', resizeHandler);
+    document.removeEventListener('visibilitychange', visibilityHandler);
+    window.removeEventListener('beforeunload', beforeUnloadHandler);
+    if (touchState.longPressTimer) { clearTimeout(touchState.longPressTimer); touchState.longPressTimer = null; }
+    if (perf.fpsRaf) { cancelAnimationFrame(perf.fpsRaf); perf.fpsRaf = null; }
+  }
+
+  // ── Performance profiler ──
+  var perf = {
+    fps: 0, fpsFrames: 0, fpsLast: performance.now(), fpsRaf: null,
+    renderNodesMs: 0, renderLinksMs: 0, peerColorMs: 0, updateLatencyMs: 0,
+    nodeCount: 0, linkCount: 0, sampleCount: 0
+  };
+  function tickFps(now) {
+    perf.fpsFrames++;
+    if (now - perf.fpsLast >= 1000) {
+      perf.fps = perf.fpsFrames;
+      perf.fpsFrames = 0;
+      perf.fpsLast = now;
+      if (perf.sampleCount > 0) {
+        _log('perf', 'FPS=%d renderNodes=%.1fms renderLinks=%.1fms peerColor=%.3fms updateLatency=%.1fms nodes=%d links=%d samples=%d',
+          perf.fps, perf.renderNodesMs, perf.renderLinksMs, perf.peerColorMs,
+          perf.updateLatencyMs, perf.nodeCount, perf.linkCount, perf.sampleCount);
+        perf.renderNodesMs = 0; perf.renderLinksMs = 0;
+        perf.peerColorMs = 0; perf.updateLatencyMs = 0;
+        perf.sampleCount = 0;
+      }
+    }
+    perf.fpsRaf = requestAnimationFrame(tickFps);
+  }
+
+  // Wrapped render functions that report timing
+  var _origRenderNodes = renderNodes;
+  renderNodes = function() {
+    var t0 = performance.now();
+    _origRenderNodes();
+    var dt = performance.now() - t0;
+    perf.renderNodesMs += dt;
+    perf.nodeCount = Object.keys(nodeElements).length;
+    perf.sampleCount++;
+    _log('perf', 'renderNodes: %.1fms (%d nodes)', dt, perf.nodeCount);
+  };
+
+  var _origRenderLinks = renderLinks;
+  renderLinks = function() {
+    var t0 = performance.now();
+    _origRenderLinks();
+    var dt = performance.now() - t0;
+    perf.renderLinksMs += dt;
+    perf.linkCount = linksData ? linksData.length : 0;
+    _log('perf', 'renderLinks: %.1fms (%d links)', dt, perf.linkCount);
+  };
+
+  var _origGetPeerColor = getPeerColor;
+  getPeerColor = function(count) {
+    var t0 = performance.now();
+    var r = _origGetPeerColor(count);
+    perf.peerColorMs += (performance.now() - t0);
+    return r;
+  };
+
+  var _origUpdateLatency = updateLatency;
+  updateLatency = function() {
+    var t0 = performance.now();
+    _origUpdateLatency();
+    perf.updateLatencyMs += (performance.now() - t0);
+  };
+
+  perf.fpsRaf = requestAnimationFrame(tickFps);
+
+  // Touch handlers are defined above (named for cleanup)
   function startAutoRefresh() {
     stopAutoRefresh();
     refreshInterval = setInterval(updateLatency, 5000);
@@ -913,117 +1398,62 @@
     if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
   }
 
-  // ── Network jitter simulation: randomly change link latencies + update colors ──
-  var jitterInterval = null;
-  var jitterActive = false;
-
-  function startJitter() {
-    if (jitterInterval) return;
-    jitterActive = true;
-    var jitterBtn = document.getElementById('jitter-btn');
-    if (jitterBtn) jitterBtn.classList.add('active');
-    jitterInterval = setInterval(applyJitter, 2000);
-    applyJitter();
-  }
-
-  function stopJitter() {
-    if (jitterInterval) { clearInterval(jitterInterval); jitterInterval = null; }
-    jitterActive = false;
-    var jitterBtn = document.getElementById('jitter-btn');
-    if (jitterBtn) jitterBtn.classList.remove('active');
-  }
-
-  function applyJitter() {
-    if (!linksData || linksData.length === 0) return;
-    var paths = linksGroup.querySelectorAll('.link-line');
-    if (paths.length === 0) return;
-    // Pick 5-10 random links to jitter
-    var count = 5 + Math.floor(Math.random() * 6);
-    var changed = [];
-    for (var i = 0; i < count; i++) {
-      var idx = Math.floor(Math.random() * linksData.length);
-      var link = linksData[idx];
-      // Change latency by random factor (0.3x to 2.5x)
-      var factor = 0.3 + Math.random() * 2.2;
-      var newLatency = Math.max(1, Math.round(link.latency * factor * 10) / 10);
-      link.latency = newLatency;
-      // Update the SVG path color
-      var path = paths[idx];
-      if (path) {
-        var _class = getLatencyClass(newLatency);
-        var color = getLatencyColor(_class);
-        path.setAttribute('stroke', color);
-        path.setAttribute('data-latency', newLatency);
-        path.setAttribute('class', 'link-line link-' + _class);
-        // Brief flash to highlight the change
-        path.setAttribute('stroke-width', '2.5');
-        path.setAttribute('stroke-opacity', '0.85');
-        changed.push(path);
-      }
-    }
-    // Restore normal opacity after 800ms (keep new color)
-    setTimeout(function() {
-      changed.forEach(function(p) {
-        if (!isHighlighted) {
-          p.setAttribute('stroke-width', '1.0');
-          p.setAttribute('stroke-opacity', '0.15');
-        }
-      });
-    }, 800);
-  }
-
-  function animatePulses() {
-    var pulses = pulsesGroup.querySelectorAll('.node-pulse');
-    pulses.forEach(function(pulse) {
-      var r = parseFloat(pulse.getAttribute('r'));
-      if (!pulse._animating) {
-        pulse._animating = true;
-        pulse._r = r;
-        pulse._opacity = 0.6;
-      }
-      pulse._r += 0.4;
-      pulse._opacity -= 0.015;
-      pulse.setAttribute('r', pulse._r);
-      pulse.setAttribute('stroke-opacity', Math.max(0, pulse._opacity));
-      if (pulse._r > 14 || pulse._opacity <= 0) {
-        pulse._r = r;
-        pulse._opacity = 0.6;
-      }
-    });
-    requestAnimationFrame(animatePulses);
-  }
-
+  // ── Load world map ──
   function loadWorldMap(callback) {
     fetch('/static/world-map.json?v=3').then(function(r) { return r.json(); }).then(function(data) {
       var continentsGroup = document.getElementById('map-continents');
       if (continentsGroup && data.land) {
-        var path = createSVGElement('path', {
-          'd': data.land,
-          'class': 'continent'
-        });
-        continentsGroup.appendChild(path);
+        continentsGroup.appendChild(createSVGElement('path', { 'd': data.land, 'class': 'continent' }));
       }
       callback();
-    }).catch(function() {
-      callback();
-    });
+    }).catch(function() { callback(); });
   }
 
   loadWorldMap(function() {
+    _log('init', 'worldMap loaded | nodes=%d links=%d', nodesData.length, (linksData || []).length);
+
+    // Data integrity validation
+    var _vIssues = [];
+    var _nodeIds = {};
+    nodesData.forEach(function(n) {
+      _nodeIds[n.id] = true;
+      var ni = [];
+      if (!n.id) ni.push('NO_ID');
+      if (!n.name) ni.push('NO_NAME');
+      if (n.lat === null || n.lat === undefined) ni.push('NO_LAT');
+      if (n.lng === null || n.lng === undefined) ni.push('NO_LNG');
+      if (n.peer_count === null || n.peer_count === undefined) ni.push('NO_PEERS');
+      if (n.online && (n.latency === null || n.latency === undefined)) ni.push('NO_LATENCY');
+      if (ni.length) _vIssues.push((n.name_zh || n.name || n.id) + ': ' + ni.join(','));
+    });
+    var _lIssues = [];
+    (linksData || []).forEach(function(l) {
+      var li = [];
+      if (!l.source_id) li.push('NO_SRC_ID');
+      if (!l.target_id) li.push('NO_TGT_ID');
+      if (!_nodeIds[l.source_id]) li.push('ORPHAN_SRC');
+      if (!_nodeIds[l.target_id]) li.push('ORPHAN_TGT');
+      if (l.latency === null || l.latency === undefined) li.push('NO_LATENCY');
+      if (li.length) _lIssues.push((l.id || '?') + ': ' + li.join(','));
+    });
+    if (_vIssues.length || _lIssues.length) {
+      _warn('validate', 'ISSUES nodes=%s links=%s', _vIssues.join('; ') || 'none', _lIssues.join('; ') || 'none');
+    } else {
+      _log('validate', 'ALL CHECKS PASSED | nodes=%d links=%d', nodesData.length, (linksData || []).length);
+    }
+
     renderNodes();
     renderLinks();
+    var totalPeers = nodesData.reduce(function(s, n) { return s + (n.peer_count || 0); }, 0);
+    var tpEl = document.getElementById('total-peers');
+    if (tpEl) tpEl.textContent = totalPeers;
     updateStats();
     startAutoRefresh();
-    requestAnimationFrame(animatePulses);
-    // Auto-enter first-level focus on page load
-    focusOnNodes();
-    setFocusState(true);
-    // Auto-start jitter simulation in demo mode
-    var urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('demo')) {
-      setTimeout(startJitter, 1500);
-    }
+    populateSidebar();
+    // Initial focus: L2 (show all nodes)
+    setFocusLevel('L2');
   });
+
 })();
 </script>
 {% endblock %}

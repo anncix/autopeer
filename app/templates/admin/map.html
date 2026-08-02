@@ -345,18 +345,8 @@
         pulsesGroup.appendChild(pulse);
       }
 
-      var label = createSVGElement('text', {
-        'x': pos.x,
-        'y': pos.y - size - 6,
-        'class': 'node-label',
-        'fill': color,
-        'text-anchor': 'middle',
-        'font-size': '9',
-        'font-weight': '600'
-      });
-      label.textContent = latency !== null ? latency + 'ms' : 'OFF';
-      label.setAttribute('data-node-id', node.id);
-      label.style.display = 'none'; // latency labels hidden for cleaner map view
+      // Latency label above node removed — latency now shown only on hover/click.
+      // See onNodeHover (tooltip) and onNodeClick (detail panel with per-node list).
 
       var nameLabel = createSVGElement('text', {
         'x': pos.x,
@@ -372,12 +362,11 @@
       nameLabel.style.display = 'none'; // node names hidden for cleaner map view
 
       nodesGroup.appendChild(circle);
-      nodesGroup.appendChild(label);
       nodesGroup.appendChild(nameLabel);
 
       nodeElements[node.id] = {
         circle: circle,
-        label: label,
+        label: null,
         nameLabel: nameLabel,
         pos: pos,
         data: node
@@ -767,9 +756,12 @@
         ne.circle.setAttribute('r', size);
         ne.circle.setAttribute('fill', color);
         ne.circle.setAttribute('class', 'node-dot node-dot-' + _class);
-        ne.label.setAttribute('y', ne.pos.y - size - 6);
-        ne.label.setAttribute('fill', color);
-        ne.label.textContent = currentLatency + 'ms';
+        // Latency label removed from nodes; latency shown via hover/click only.
+        if (ne.label) {
+          ne.label.setAttribute('y', ne.pos.y - size - 6);
+          ne.label.setAttribute('fill', color);
+          ne.label.textContent = currentLatency + 'ms';
+        }
         var pulseEl = pulsesGroup.querySelector('[data-node-id="' + node.id + '"]');
         if (pulseEl) {
           pulseEl.setAttribute('stroke', color);
